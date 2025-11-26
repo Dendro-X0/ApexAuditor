@@ -26,6 +26,7 @@ function normaliseConfig(input: unknown, absolutePath: string): ApexConfig {
     readonly chromePort?: unknown;
     readonly runs?: unknown;
     readonly pages?: unknown;
+    readonly logLevel?: unknown;
   };
   if (typeof maybeConfig.baseUrl !== "string" || maybeConfig.baseUrl.length === 0) {
     throw new Error(`Invalid config at ${absolutePath}: baseUrl must be a non-empty string`);
@@ -39,11 +40,17 @@ function normaliseConfig(input: unknown, absolutePath: string): ApexConfig {
   const query: string | undefined = typeof maybeConfig.query === "string" ? maybeConfig.query : undefined;
   const chromePort: number | undefined = typeof maybeConfig.chromePort === "number" ? maybeConfig.chromePort : undefined;
   const runs: number | undefined = typeof maybeConfig.runs === "number" && maybeConfig.runs > 0 ? maybeConfig.runs : undefined;
+  const rawLogLevel: unknown = maybeConfig.logLevel;
+  const logLevel: "silent" | "error" | "info" | "verbose" | undefined =
+    rawLogLevel === "silent" || rawLogLevel === "error" || rawLogLevel === "info" || rawLogLevel === "verbose"
+      ? rawLogLevel
+      : undefined;
   return {
     baseUrl,
     query,
     chromePort,
     runs,
+    logLevel,
     pages,
   };
 }

@@ -42,8 +42,8 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
 
 function buildMarkdown(results: readonly PageDeviceSummary[]): string {
   const header: string = [
-    "| Label | Path | Device | P | A | BP | SEO | LCP (s) | FCP (s) | TBT (ms) | CLS | Top issues |",
-    "|-------|------|--------|---|---|----|-----|---------|---------|----------|-----|-----------|",
+    "| Label | Path | Device | P | A | BP | SEO | LCP (s) | FCP (s) | TBT (ms) | CLS | Error | Top issues |",
+    "|-------|------|--------|---|---|----|-----|---------|---------|----------|-----|-------|-----------|",
   ].join("\n");
   const lines: string[] = results.map((result) => buildRow(result));
   return `${header}\n${lines.join("\n")}`;
@@ -57,7 +57,9 @@ function buildRow(result: PageDeviceSummary): string {
   const tbtMs: string = metrics.tbtMs !== undefined ? Math.round(metrics.tbtMs).toString() : "-";
   const cls: string = metrics.cls !== undefined ? metrics.cls.toFixed(3) : "-";
   const issues: string = formatTopIssues(result.opportunities);
-  return `| ${result.label} | ${result.path} | ${result.device} | ${scores.performance ?? "-"} | ${scores.accessibility ?? "-"} | ${scores.bestPractices ?? "-"} | ${scores.seo ?? "-"} | ${lcpSeconds} | ${fcpSeconds} | ${tbtMs} | ${cls} | ${issues} |`;
+  const error: string =
+    result.runtimeErrorCode ?? (result.runtimeErrorMessage !== undefined ? result.runtimeErrorMessage : "");
+  return `| ${result.label} | ${result.path} | ${result.device} | ${scores.performance ?? "-"} | ${scores.accessibility ?? "-"} | ${scores.bestPractices ?? "-"} | ${scores.seo ?? "-"} | ${lcpSeconds} | ${fcpSeconds} | ${tbtMs} | ${cls} | ${error} | ${issues} |`;
 }
 
 function formatTopIssues(opportunities: readonly OpportunitySummary[]): string {

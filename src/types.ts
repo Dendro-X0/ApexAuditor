@@ -11,6 +11,7 @@ export interface ApexConfig {
   readonly query?: string;
   readonly chromePort?: number;
   readonly runs?: number;
+  readonly logLevel?: "silent" | "error" | "info" | "verbose";
   readonly pages: readonly ApexPageConfig[];
 }
 
@@ -43,6 +44,8 @@ export interface PageDeviceSummary {
   readonly scores: CategoryScores;
   readonly metrics: MetricValues;
   readonly opportunities: readonly OpportunitySummary[];
+  readonly runtimeErrorCode?: string;
+  readonly runtimeErrorMessage?: string;
 }
 
 export interface RunSummary {

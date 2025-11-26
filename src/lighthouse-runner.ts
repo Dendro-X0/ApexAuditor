@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import lighthouse from "lighthouse";
 import { launch as launchChrome } from "chrome-launcher";
 import type { ApexConfig, ApexDevice, MetricValues, CategoryScores, OpportunitySummary, PageDeviceSummary, RunSummary } from "./types.js";
@@ -34,6 +36,10 @@ interface LighthouseResultLike {
     readonly ["best-practices"]?: LighthouseCategoryLike;
     readonly seo?: LighthouseCategoryLike;
   };
+  readonly runtimeError?: {
+    readonly code?: string;
+    readonly message?: string;
+  };
 }
 
 interface RunAuditParams {
@@ -42,6 +48,7 @@ interface RunAuditParams {
   readonly label: string;
   readonly device: ApexDevice;
   readonly port: number;
+  readonly logLevel: "silent" | "error" | "info" | "verbose";
 }
 
 async function createChromeSession(chromePort?: number): Promise<ChromeSession> {
@@ -72,6 +79,38 @@ async function createChromeSession(chromePort?: number): Promise<ChromeSession> 
   };
 }
 
+async function ensureUrlReachable(url: string): Promise<void> {
+  const parsed = new URL(url);
+  const client = parsed.protocol === "https:" ? httpsRequest : httpRequest;
+  await new Promise<void>((resolve, reject) => {
+    const request = client(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: "GET",
+      },
+      (response) => {
+        const statusCode: number = response.statusCode ?? 0;
+        response.resume();
+        if (statusCode >= 200 && statusCode < 400) {
+          resolve();
+        } else {
+          reject(new Error(`HTTP ${statusCode}`));
+        }
+      },
+    );
+    request.on("error", (error: Error) => {
+      reject(error);
+    });
+    request.end();
+  }).catch((error: unknown) => {
+    // eslint-disable-next-line no-console
+    console.error(`Could not reach ${url}. Is your dev server running?`, error);
+    throw error instanceof Error ? error : new Error(`URL not reachable: ${url}`);
+  });
+}
+
 /**
  * Run audits for all pages defined in the config and return a structured summary.
  */
@@ -84,6 +123,9 @@ export async function runAuditsForConfig({
 }): Promise<RunSummary> {
   const runs: number = config.runs ?? 1;
   const results: PageDeviceSummary[] = [];
+  const firstPage = config.pages[0];
+  const healthCheckUrl: string = buildUrl({ baseUrl: config.baseUrl, path: firstPage.path, query: config.query });
+  await ensureUrlReachable(healthCheckUrl);
   const session: ChromeSession = await createChromeSession(config.chromePort);
   try {
     for (const page of config.pages) {
@@ -97,6 +139,7 @@ export async function runAuditsForConfig({
             label: page.label,
             device,
             port: session.port,
+            logLevel: config.logLevel ?? "error",
           });
           summaries.push(summary);
         }
@@ -122,7 +165,7 @@ async function runSingleAudit(params: RunAuditParams): Promise<PageDeviceSummary
   const options = {
     port: params.port,
     output: "json" as const,
-    logLevel: "error" as const,
+    logLevel: params.logLevel,
     onlyCategories: ["performance", "accessibility", "best-practices", "seo"] as const,
     emulatedFormFactor: params.device,
   };
@@ -143,6 +186,8 @@ async function runSingleAudit(params: RunAuditParams): Promise<PageDeviceSummary
     scores,
     metrics,
     opportunities,
+    runtimeErrorCode: typeof lhr.runtimeError?.code === "string" ? lhr.runtimeError.code : undefined,
+    runtimeErrorMessage: typeof lhr.runtimeError?.message === "string" ? lhr.runtimeError.message : undefined,
   };
 }
 
@@ -229,6 +274,8 @@ function aggregateSummaries(summaries: PageDeviceSummary[]): PageDeviceSummary {
     scores: aggregateScores,
     metrics: aggregateMetrics,
     opportunities,
+    runtimeErrorCode: base.runtimeErrorCode,
+    runtimeErrorMessage: base.runtimeErrorMessage,
   };
 }
 
