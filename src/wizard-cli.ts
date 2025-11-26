@@ -12,7 +12,6 @@ interface WizardArgs {
 interface BaseAnswers {
   readonly baseUrl: string;
   readonly query?: string;
-  readonly chromePort?: number;
   readonly runs?: number;
 }
 
@@ -53,9 +52,8 @@ const PROFILE_TO_DETECTOR: Record<ProjectProfileId, RouteDetectorId | undefined>
 };
 
 const DEFAULT_BASE_URL = "http://localhost:3000" as const;
-const DEFAULT_CHROME_PORT = 9222;
 const DEFAULT_RUNS = 1;
-const DEFAULT_PROJECT_ROOT = ".." as const;
+const DEFAULT_PROJECT_ROOT = "." as const;
 const DEFAULT_PRESELECT_COUNT = 5;
 const DEFAULT_DEVICES: readonly ApexDevice[] = ["mobile", "desktop"] as const;
 const PROMPT_OPTIONS = { onCancel: handleCancel } as const;
@@ -90,13 +88,6 @@ const baseQuestions: readonly PromptObject[] = [
     name: "query",
     message: "Query string appended to every route (optional)",
     initial: "",
-  },
-  {
-    type: "number",
-    name: "chromePort",
-    message: "Chrome remote debugging port",
-    initial: DEFAULT_CHROME_PORT,
-    min: 1,
   },
   {
     type: "number",
@@ -215,7 +206,6 @@ async function collectBaseAnswers(): Promise<BaseAnswers> {
   return {
     baseUrl: answers.baseUrl.trim(),
     query: answers.query && answers.query.length > 0 ? answers.query : undefined,
-    chromePort: answers.chromePort,
     runs: answers.runs,
   };
 }
@@ -319,7 +309,6 @@ async function buildConfig(): Promise<ApexConfig> {
   return {
     baseUrl: baseAnswers.baseUrl,
     query: baseAnswers.query,
-    chromePort: baseAnswers.chromePort,
     runs: baseAnswers.runs,
     pages,
   };

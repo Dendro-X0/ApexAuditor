@@ -1,5 +1,11 @@
 import lighthouse from "lighthouse";
+import chromeLauncher from "chrome-launcher";
 import type { ApexConfig, ApexDevice, MetricValues, CategoryScores, OpportunitySummary, PageDeviceSummary, RunSummary } from "./types.js";
+
+interface ChromeSession {
+  readonly port: number;
+  readonly close?: () => Promise<void>;
+}
 
 interface LighthouseCategoryLike {
   readonly score?: number;
@@ -38,6 +44,30 @@ interface RunAuditParams {
   readonly port: number;
 }
 
+async function createChromeSession(chromePort?: number): Promise<ChromeSession> {
+  if (typeof chromePort === "number") {
+    return { port: chromePort };
+  }
+  const chrome = await chromeLauncher.launch({
+    chromeFlags: [
+      "--headless=new",
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-extensions",
+      "--disable-default-apps",
+      "--no-first-run",
+      "--no-default-browser-check",
+    ],
+  });
+  return {
+    port: chrome.port,
+    close: async () => {
+      await chrome.kill();
+    },
+  };
+}
+
 /**
  * Run audits for all pages defined in the config and return a structured summary.
  */
@@ -48,24 +78,30 @@ export async function runAuditsForConfig({
   readonly config: ApexConfig;
   readonly configPath: string;
 }): Promise<RunSummary> {
-  const port: number = config.chromePort ?? 9222;
   const runs: number = config.runs ?? 1;
   const results: PageDeviceSummary[] = [];
-  for (const page of config.pages) {
-    for (const device of page.devices) {
-      const url: string = buildUrl({ baseUrl: config.baseUrl, path: page.path, query: config.query });
-      const summaries: PageDeviceSummary[] = [];
-      for (let i = 0; i < runs; i += 1) {
-        const summary: PageDeviceSummary = await runSingleAudit({
-          url,
-          path: page.path,
-          label: page.label,
-          device,
-          port,
-        });
-        summaries.push(summary);
+  const session: ChromeSession = await createChromeSession(config.chromePort);
+  try {
+    for (const page of config.pages) {
+      for (const device of page.devices) {
+        const url: string = buildUrl({ baseUrl: config.baseUrl, path: page.path, query: config.query });
+        const summaries: PageDeviceSummary[] = [];
+        for (let index = 0; index < runs; index += 1) {
+          const summary: PageDeviceSummary = await runSingleAudit({
+            url,
+            path: page.path,
+            label: page.label,
+            device,
+            port: session.port,
+          });
+          summaries.push(summary);
+        }
+        results.push(aggregateSummaries(summaries));
       }
-      results.push(aggregateSummaries(summaries));
+    }
+  } finally {
+    if (session.close) {
+      await session.close();
     }
   }
   return { configPath, results };
