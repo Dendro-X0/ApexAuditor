@@ -1,0 +1,31 @@
+{
+  "name": "apex-auditor",
+  "version": "0.1.0",
+  "private": false,
+  "description": "CLI to run structured Lighthouse audits (Performance, Accessibility, Best Practices, SEO) across routes.",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "bin": {
+    "apex-auditor": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "audit": "tsx src/bin.ts audit",
+    "wizard": "tsx src/bin.ts wizard",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "lighthouse": "^12.6.1",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.0.0",
+    "@types/prompts": "^2.4.9",
+    "vitest": "^1.3.1"
+  }
+}
