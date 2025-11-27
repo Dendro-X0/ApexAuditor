@@ -28,6 +28,17 @@ const ANSI_RESET = "\u001B[0m" as const;
 const ANSI_RED = "\u001B[31m" as const;
 const ANSI_YELLOW = "\u001B[33m" as const;
 const ANSI_GREEN = "\u001B[32m" as const;
+const ANSI_CYAN = "\u001B[36m" as const;
+const ANSI_BLUE = "\u001B[34m" as const;
+
+const LCP_GOOD_MS: number = 2500;
+const LCP_WARN_MS: number = 4000;
+const FCP_GOOD_MS: number = 1800;
+const FCP_WARN_MS: number = 3000;
+const TBT_GOOD_MS: number = 200;
+const TBT_WARN_MS: number = 600;
+const CLS_GOOD: number = 0.1;
+const CLS_WARN: number = 0.25;
 
 function parseArgs(argv: readonly string[]): CliArgs {
   let configPath: string | undefined;
@@ -80,7 +91,7 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   const markdown: string = buildMarkdown(summary.results);
   await writeFile(resolve(outputDir, "summary.md"), markdown, "utf8");
   // Also echo a compact, colourised table to stdout for quick viewing.
-    const useColor: boolean = shouldUseColor(args.ci, args.colorMode);
+  const useColor: boolean = shouldUseColor(args.ci, args.colorMode);
   const consoleTable: string = buildConsoleTable(summary.results, useColor);
   // eslint-disable-next-line no-console
   console.log(consoleTable);
@@ -89,12 +100,13 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   printLowestPerformancePages(summary.results, useColor);
   const elapsedMs: number = Date.now() - startTimeMs;
   const elapsedText: string = formatElapsedTime(elapsedMs);
+  const elapsedDisplay: string = useColor ? `${ANSI_CYAN}${elapsedText}${ANSI_RESET}` : elapsedText;
   const runsPerTarget: number = effectiveConfig.runs ?? 1;
   const comboCount: number = summary.results.length;
   const totalRuns: number = comboCount * runsPerTarget;
   // eslint-disable-next-line no-console
   console.log(
-    `\nCompleted in ${elapsedText} (${comboCount} page/device combinations x ${runsPerTarget} runs = ${totalRuns} Lighthouse runs).`,
+    `\nCompleted in ${elapsedDisplay} (${comboCount} page/device combinations x ${runsPerTarget} runs = ${totalRuns} Lighthouse runs).`,
   );
 }
 
@@ -130,34 +142,40 @@ function buildRow(result: PageDeviceSummary): string {
 }
 
 function buildConsoleRow(result: PageDeviceSummary, useColor: boolean): string {
-  const line1: string = buildConsoleRowLine1(result, useColor);
-  const line2: string = buildConsoleRowLine2(result, useColor);
-  const line3: string = buildConsoleRowLine3(result);
-  const lines: string[] = [line1];
-  if (line2.length > 0) {
-    lines.push(line2);
+  const scoreLine: string = buildConsoleScoreLine(result, useColor);
+  const metricsLine: string = buildConsoleMetricsLine(result, useColor);
+  const errorLine: string = buildConsoleErrorLine(result, useColor);
+  const issuesLine: string = buildConsoleIssuesLine(result);
+  const lines: string[] = [scoreLine, metricsLine];
+  if (errorLine.length > 0) {
+    lines.push(errorLine);
   }
-  if (line3.length > 0) {
-    lines.push(line3);
+  if (issuesLine.length > 0) {
+    lines.push(issuesLine);
   }
   return lines.join("\n");
 }
 
-function buildConsoleRowLine1(result: PageDeviceSummary, useColor: boolean): string {
+function buildConsoleScoreLine(result: PageDeviceSummary, useColor: boolean): string {
   const scores = result.scores;
-  const metrics = result.metrics;
-  const lcpSeconds: string = metrics.lcpMs !== undefined ? (metrics.lcpMs / 1000).toFixed(1) : "-";
-  const fcpSeconds: string = metrics.fcpMs !== undefined ? (metrics.fcpMs / 1000).toFixed(1) : "-";
-  const tbtMs: string = metrics.tbtMs !== undefined ? Math.round(metrics.tbtMs).toString() : "-";
-  const cls: string = metrics.cls !== undefined ? metrics.cls.toFixed(3) : "-";
   const performanceText: string = colourScore(scores.performance, useColor);
   const accessibilityText: string = colourScore(scores.accessibility, useColor);
   const bestPracticesText: string = colourScore(scores.bestPractices, useColor);
   const seoText: string = colourScore(scores.seo, useColor);
-  return `| ${result.label} | ${result.path} | ${result.device} | ${performanceText} | ${accessibilityText} | ${bestPracticesText} | ${seoText} | ${lcpSeconds} | ${fcpSeconds} | ${tbtMs} | ${cls} |`;
+  const deviceText: string = formatDeviceLabel(result.device, useColor);
+  return `| ${result.label} | ${result.path} | ${deviceText} | ${performanceText} | ${accessibilityText} | ${bestPracticesText} | ${seoText} |  |  |  |  |`;
 }
 
-function buildConsoleRowLine2(result: PageDeviceSummary, useColor: boolean): string {
+function buildConsoleMetricsLine(result: PageDeviceSummary, useColor: boolean): string {
+  const metrics = result.metrics;
+  const lcpText: string = formatMetricSeconds(metrics.lcpMs, LCP_GOOD_MS, LCP_WARN_MS, useColor);
+  const fcpText: string = formatMetricSeconds(metrics.fcpMs, FCP_GOOD_MS, FCP_WARN_MS, useColor);
+  const tbtText: string = formatMetricMilliseconds(metrics.tbtMs, TBT_GOOD_MS, TBT_WARN_MS, useColor);
+  const clsText: string = formatMetricRatio(metrics.cls, CLS_GOOD, CLS_WARN, useColor);
+  return `|  |  |  |  |  |  |  | ${lcpText} | ${fcpText} | ${tbtText} | ${clsText} |`;
+}
+
+function buildConsoleErrorLine(result: PageDeviceSummary, useColor: boolean): string {
   const errorCode: string | undefined = result.runtimeErrorCode;
   const errorMessage: string | undefined = result.runtimeErrorMessage;
   if (!errorCode && !errorMessage) {
@@ -168,7 +186,7 @@ function buildConsoleRowLine2(result: PageDeviceSummary, useColor: boolean): str
   return `  ${prefix} ${errorText}`;
 }
 
-function buildConsoleRowLine3(result: PageDeviceSummary): string {
+function buildConsoleIssuesLine(result: PageDeviceSummary): string {
   const issues: string = formatTopIssues(result.opportunities);
   if (issues.length === 0) {
     return "";
@@ -188,6 +206,77 @@ function formatTopIssues(opportunities: readonly OpportunitySummary[]): string {
     return `${opp.id}${suffix}`;
   });
   return items.join("; ");
+}
+
+function formatMetricSeconds(
+  valueMs: number | undefined,
+  goodThresholdMs: number,
+  warnThresholdMs: number,
+  useColor: boolean,
+): string {
+  if (valueMs === undefined) {
+    return "-";
+  }
+  const seconds: number = valueMs / 1000;
+  const text: string = `${seconds.toFixed(1)}s`;
+  if (!useColor) {
+    return text;
+  }
+  const colour: string = selectColourForThreshold(valueMs, goodThresholdMs, warnThresholdMs);
+  return `${colour}${text}${ANSI_RESET}`;
+}
+
+function formatMetricMilliseconds(
+  valueMs: number | undefined,
+  goodThresholdMs: number,
+  warnThresholdMs: number,
+  useColor: boolean,
+): string {
+  if (valueMs === undefined) {
+    return "-";
+  }
+  const rounded: number = Math.round(valueMs);
+  const text: string = `${rounded}ms`;
+  if (!useColor) {
+    return text;
+  }
+  const colour: string = selectColourForThreshold(valueMs, goodThresholdMs, warnThresholdMs);
+  return `${colour}${text}${ANSI_RESET}`;
+}
+
+function formatMetricRatio(
+  value: number | undefined,
+  goodThreshold: number,
+  warnThreshold: number,
+  useColor: boolean,
+): string {
+  if (value === undefined) {
+    return "-";
+  }
+  const text: string = value.toFixed(3);
+  if (!useColor) {
+    return text;
+  }
+  const colour: string = selectColourForThreshold(value, goodThreshold, warnThreshold);
+  return `${colour}${text}${ANSI_RESET}`;
+}
+
+function selectColourForThreshold(value: number, goodThreshold: number, warnThreshold: number): string {
+  if (value <= goodThreshold) {
+    return ANSI_GREEN;
+  }
+  if (value <= warnThreshold) {
+    return ANSI_YELLOW;
+  }
+  return ANSI_RED;
+}
+
+function formatDeviceLabel(device: ApexDevice, useColor: boolean): string {
+  if (!useColor) {
+    return device;
+  }
+  const colour: string = device === "mobile" ? ANSI_CYAN : ANSI_BLUE;
+  return `${colour}${device}${ANSI_RESET}`;
 }
 
 function colourScore(score: number | undefined, useColor: boolean): string {
