@@ -46,7 +46,7 @@ interface RouteDetector {
 }
 
 const PAGE_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js"] as const;
-const DEFAULT_LIMIT = 25;
+const DEFAULT_LIMIT: number = 200;
 const SOURCE_NEXT_APP: RouteDetectorId = "next-app";
 const SOURCE_NEXT_PAGES: RouteDetectorId = "next-pages";
 const SOURCE_REMIX: RouteDetectorId = "remix-routes";
