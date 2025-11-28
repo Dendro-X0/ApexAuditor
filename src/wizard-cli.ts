@@ -46,13 +46,14 @@ interface ProjectSelectionAnswer {
   readonly projectRoot: string;
 }
 
-type ProjectProfileId = "next-app" | "next-pages" | "spa" | "remix" | "custom";
+type ProjectProfileId = "next-app" | "next-pages" | "spa" | "remix" | "sveltekit" | "custom";
 
 const PROFILE_TO_DETECTOR: Record<ProjectProfileId, RouteDetectorId | undefined> = {
   "next-app": "next-app",
   "next-pages": "next-pages",
   spa: "spa-html",
   remix: "remix-routes",
+  sveltekit: "sveltekit-routes",
   custom: undefined,
 };
 
@@ -70,6 +71,7 @@ const profileQuestion: PromptObject = {
     { title: "Next.js (App Router)", value: "next-app" },
     { title: "Next.js (Pages Router)", value: "next-pages" },
     { title: "Remix", value: "remix" },
+    { title: "SvelteKit", value: "sveltekit" },
     { title: "Single Page App (Vite/CRA/etc.)", value: "spa" },
     { title: "Custom/manual", value: "custom" },
   ],
@@ -158,6 +160,7 @@ const detectorChoiceQuestion: PromptObject = {
     { title: "Next.js (App Router)", value: "next-app" },
     { title: "Next.js (Pages Router)", value: "next-pages" },
     { title: "Remix", value: "remix-routes" },
+    { title: "SvelteKit", value: "sveltekit-routes" },
     { title: "SPA Crawl", value: "spa-html" },
   ],
 };

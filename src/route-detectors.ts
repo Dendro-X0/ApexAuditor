@@ -3,7 +3,7 @@ import { join, relative, sep } from "node:path";
 import type { Dirent } from "node:fs";
 import { pathExists, readTextFile } from "./fs-utils.js";
 
-export type RouteDetectorId = "next-app" | "next-pages" | "remix-routes" | "spa-html";
+export type RouteDetectorId = "next-app" | "next-pages" | "remix-routes" | "sveltekit-routes" | "spa-html";
 
 export interface DetectRoutesOptions {
   readonly projectRoot: string;
@@ -50,11 +50,13 @@ const DEFAULT_LIMIT: number = 200;
 const SOURCE_NEXT_APP: RouteDetectorId = "next-app";
 const SOURCE_NEXT_PAGES: RouteDetectorId = "next-pages";
 const SOURCE_REMIX: RouteDetectorId = "remix-routes";
+const SOURCE_SVELTEKIT: RouteDetectorId = "sveltekit-routes";
 const SOURCE_SPA: RouteDetectorId = "spa-html";
 const ROUTE_DETECTORS: readonly RouteDetector[] = [
   createNextAppDetector(),
   createNextPagesDetector(),
   createRemixRoutesDetector(),
+  createSvelteKitRoutesDetector(),
   createSpaHtmlDetector(),
 ];
 
@@ -103,6 +105,20 @@ function createNextAppDetector(): RouteDetector {
         }
       }
       return allRoutes;
+    },
+  };
+}
+
+function createSvelteKitRoutesDetector(): RouteDetector {
+  return {
+    id: SOURCE_SVELTEKIT,
+    canDetect: async (options) => {
+      const routesRoot: string = join(options.projectRoot, "src", "routes");
+      return pathExists(routesRoot);
+    },
+    detect: async (options) => {
+      const routesRoot: string = join(options.projectRoot, "src", "routes");
+      return detectSvelteKitRoutes(routesRoot, options.limit);
     },
   };
 }
@@ -246,6 +262,11 @@ async function detectRemixRoutes(routesRoot: string, limit: number): Promise<Det
   return files.map((file) => buildRoute(file, routesRoot, formatRemixRoutePath, SOURCE_REMIX));
 }
 
+async function detectSvelteKitRoutes(routesRoot: string, limit: number): Promise<DetectedRoute[]> {
+  const files = await collectRouteFiles(routesRoot, limit, isSvelteKitPageFile);
+  return files.map((file) => buildRoute(file, routesRoot, formatSvelteKitRoutePath, SOURCE_SVELTEKIT));
+}
+
 async function detectSpaRoutes(projectRoot: string, limit: number): Promise<DetectedRoute[]> {
   const htmlPath = await findSpaHtml(projectRoot);
   if (!htmlPath) {
@@ -334,6 +355,20 @@ function isRemixRouteFile(entry: Dirent, relativePath: string): boolean {
   return !posixPath.split("/").some((segment) => segment.startsWith("__"));
 }
 
+function isSvelteKitPageFile(entry: Dirent, relativePath: string): boolean {
+  if (!entry.isFile()) {
+    return false;
+  }
+  const posixPath: string = normalisePath(relativePath);
+  return (
+    posixPath.endsWith("+page.svelte") ||
+    posixPath.endsWith("+page.ts") ||
+    posixPath.endsWith("+page.js") ||
+    posixPath.endsWith("+page.tsx") ||
+    posixPath.endsWith("+page.jsx")
+  );
+}
+
 function hasAllowedExtension(path: string): boolean {
   return PAGE_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
@@ -401,6 +436,29 @@ function formatRemixRoutePath(relativePath: string): string {
     })
     .filter((segment) => segment.length > 0);
   return parts.length === 0 ? "/" : normaliseRoute(parts.join("/"));
+}
+
+function formatSvelteKitRoutePath(relativePath: string): string {
+  const cleanPath: string = relativePath.replace(/\\/g, "/");
+  const withoutFile: string = cleanPath.replace(/\/?\+page\.[^/]+$/, "");
+  const segments: string[] = withoutFile.split("/").filter((segment) => segment.length > 0);
+  const parts: string[] = segments
+    .filter((segment) => !(segment.startsWith("(") && segment.endsWith(")")))
+    .map((segment) => {
+      if (segment.startsWith("[") && segment.endsWith("]")) {
+        const inner: string = segment.slice(1, -1);
+        const name: string = inner.replace(/^\.\.\./, "");
+        if (name.length === 0) {
+          return ":param";
+        }
+        return `:${name}`;
+      }
+      return segment;
+    });
+  if (parts.length === 0) {
+    return "/";
+  }
+  return normaliseRoute(parts.join("/"));
 }
 
 function normaliseRoute(path: string): string {
