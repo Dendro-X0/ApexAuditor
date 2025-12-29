@@ -1,0 +1,77 @@
+{
+  "configPath": "E:\\Web Project\\experimental-workspace\\apex-auditor-workspace\\apex-auditor\\.apex-auditor\\quickstart.config.json",
+  "results": [
+    {
+      "url": "http://localhost:3000/",
+      "path": "/",
+      "label": "home",
+      "device": "mobile",
+      "scores": {
+        "performance": 64,
+        "accessibility": 100,
+        "bestPractices": 96,
+        "seo": 100
+      },
+      "metrics": {
+        "lcpMs": 5840.573899999999,
+        "fcpMs": 5840.573899999999,
+        "tbtMs": 47.5,
+        "cls": 0
+      },
+      "opportunities": [
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "estimatedSavingsMs": 0
+        },
+        {
+          "id": "redirects",
+          "title": "Avoid multiple page redirects",
+          "estimatedSavingsMs": 0
+        },
+        {
+          "id": "unminified-css",
+          "title": "Minify CSS",
+          "estimatedSavingsMs": 0,
+          "estimatedSavingsBytes": 0
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:3000/",
+      "path": "/",
+      "label": "home",
+      "device": "desktop",
+      "scores": {
+        "performance": 61,
+        "accessibility": 100,
+        "bestPractices": 96,
+        "seo": 100
+      },
+      "metrics": {
+        "lcpMs": 4342.814768964053,
+        "fcpMs": 3140.7250978212937,
+        "tbtMs": 39,
+        "cls": 0
+      },
+      "opportunities": [
+        {
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "estimatedSavingsMs": 150,
+          "estimatedSavingsBytes": 91319
+        },
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "estimatedSavingsMs": 0
+        },
+        {
+          "id": "redirects",
+          "title": "Avoid multiple page redirects",
+          "estimatedSavingsMs": 0
+        }
+      ]
+    }
+  ]
+}

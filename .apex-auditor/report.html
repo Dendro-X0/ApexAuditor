@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexAuditor Report</title>
+  <style>
+    :root { --green: #0cce6b; --yellow: #ffa400; --red: #ff4e42; --bg: #1a1a2e; --card: #16213e; --text: #eee; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; }
+    h1 { margin-bottom: 0.5rem; }
+    .meta { color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+    .cards { display: grid; gap: 1.5rem; }
+    .card { background: var(--card); border-radius: 12px; padding: 1.5rem; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #333; padding-bottom: 1rem; }
+    .card-title { font-size: 1.1rem; font-weight: 600; }
+    .device-badge { font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; background: #333; }
+    .device-badge.mobile { background: #0891b2; }
+    .device-badge.desktop { background: #7c3aed; }
+    .scores { display: flex; gap: 1rem; margin-bottom: 1rem; }
+    .score-item { text-align: center; flex: 1; }
+    .score-circle { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: bold; margin: 0 auto 0.5rem; border: 3px solid; }
+    .score-circle.green { border-color: var(--green); color: var(--green); }
+    .score-circle.yellow { border-color: var(--yellow); color: var(--yellow); }
+    .score-circle.red { border-color: var(--red); color: var(--red); }
+    .score-label { font-size: 0.75rem; color: #888; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 1rem; }
+    .metric { background: #1a1a2e; padding: 0.75rem; border-radius: 8px; text-align: center; }
+    .metric-value { font-size: 1.1rem; font-weight: 600; }
+    .metric-value.green { color: var(--green); }
+    .metric-value.yellow { color: var(--yellow); }
+    .metric-value.red { color: var(--red); }
+    .metric-label { font-size: 0.7rem; color: #888; margin-top: 0.25rem; }
+    .issues { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #333; }
+    .issues-title { font-size: 0.8rem; color: #888; margin-bottom: 0.5rem; }
+    .issue { font-size: 0.85rem; color: #ccc; padding: 0.25rem 0; }
+  </style>
+</head>
+<body>
+  <h1>ApexAuditor Report</h1>
+  <p class="meta">Generated: 2025-12-28T15:28:21.011Z | Config: E:\Web Project\experimental-workspace\apex-auditor-workspace\apex-auditor\.apex-auditor\quickstart.config.json</p>
+  <div class="cards">
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">home <span style="color:#888">/</span></div>
+        <span class="device-badge mobile">mobile</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">64</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">96</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value red">5.8s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value red">5.8s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value green">48ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Initial server response time was short</div><div class="issue">Avoid multiple page redirects</div><div class="issue">Minify CSS</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">home <span style="color:#888">/</span></div>
+        <span class="device-badge desktop">desktop</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">61</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">96</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value red">4.3s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value red">3.1s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value green">39ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Reduce unused JavaScript (150ms)</div><div class="issue">Initial server response time was short</div><div class="issue">Avoid multiple page redirects</div></div>
+    </div>
+  </div>
+</body>
+</html>
