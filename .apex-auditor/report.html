@@ -10,6 +10,10 @@
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; }
     h1 { margin-bottom: 0.5rem; }
     .meta { color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .meta-card { background: #16213e; border-radius: 10px; padding: 1rem; border: 1px solid #23304f; }
+    .meta-label { font-size: 0.8rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta-value { font-size: 1rem; font-weight: 600; color: #e5e7eb; }
     .cards { display: grid; gap: 1.5rem; }
     .card { background: var(--card); border-radius: 12px; padding: 1.5rem; }
     .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #333; padding-bottom: 1rem; }
@@ -38,7 +42,21 @@
 </head>
 <body>
   <h1>ApexAuditor Report</h1>
-  <p class="meta">Generated: 2025-12-28T15:28:21.011Z | Config: E:\Web Project\experimental-workspace\apex-auditor-workspace\apex-auditor\.apex-auditor\quickstart.config.json</p>
+  <p class="meta">Generated: 2025-12-29T16:50:25.321Z</p>
+  <div class="meta-grid">
+    <div class="meta-card"><div class="meta-label">Config</div><div class="meta-value">E:\Web Project\experimental-workspace\apex-auditor-workspace\docs\apex.config.json</div></div>
+    <div class="meta-card"><div class="meta-label">Resolved parallel</div><div class="meta-value">1</div></div>
+    <div class="meta-card"><div class="meta-label">Warm-up</div><div class="meta-value">No</div></div>
+    <div class="meta-card"><div class="meta-label">Throttling</div><div class="meta-value">simulate</div></div>
+    <div class="meta-card"><div class="meta-label">CPU slowdown</div><div class="meta-value">4</div></div>
+    <div class="meta-card"><div class="meta-label">Combos</div><div class="meta-value">6</div></div>
+    <div class="meta-card"><div class="meta-label">Runs per combo</div><div class="meta-value">1</div></div>
+    <div class="meta-card"><div class="meta-label">Total steps</div><div class="meta-value">6</div></div>
+    <div class="meta-card"><div class="meta-label">Elapsed</div><div class="meta-value">1m 18s</div></div>
+    <div class="meta-card"><div class="meta-label">Avg / step</div><div class="meta-value">13s</div></div>
+    <div class="meta-card"><div class="meta-label">Started</div><div class="meta-value">2025-12-29T16:49:07.768Z</div></div>
+    <div class="meta-card"><div class="meta-label">Completed</div><div class="meta-value">2025-12-29T16:50:25.302Z</div></div>
+  </div>
   <div class="cards">
     <div class="card">
       <div class="card-header">
@@ -46,19 +64,19 @@
         <span class="device-badge mobile">mobile</span>
       </div>
       <div class="scores">
-        <div class="score-item"><div class="score-circle yellow">64</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle yellow">54</div><div class="score-label">P</div></div>
         <div class="score-item"><div class="score-circle green">100</div><div class="score-label">A</div></div>
         <div class="score-item"><div class="score-circle green">96</div><div class="score-label">BP</div></div>
         <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
       </div>
       <div class="metrics">
-        <div class="metric"><div class="metric-value red">5.8s</div><div class="metric-label">LCP</div></div>
-        <div class="metric"><div class="metric-value red">5.8s</div><div class="metric-label">FCP</div></div>
-        <div class="metric"><div class="metric-value green">48ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value red">11.9s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value red">9.0s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value green">181ms</div><div class="metric-label">TBT</div></div>
         <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
         <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
       </div>
-      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Initial server response time was short</div><div class="issue">Avoid multiple page redirects</div><div class="issue">Minify CSS</div></div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Reduce unused JavaScript (1940ms)</div><div class="issue">Minify JavaScript (1300ms)</div><div class="issue">Initial server response time was short (15ms)</div></div>
     </div>
     <div class="card">
       <div class="card-header">
@@ -66,19 +84,99 @@
         <span class="device-badge desktop">desktop</span>
       </div>
       <div class="scores">
-        <div class="score-item"><div class="score-circle yellow">61</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle red">43</div><div class="score-label">P</div></div>
         <div class="score-item"><div class="score-circle green">100</div><div class="score-label">A</div></div>
         <div class="score-item"><div class="score-circle green">96</div><div class="score-label">BP</div></div>
         <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
       </div>
       <div class="metrics">
-        <div class="metric"><div class="metric-value red">4.3s</div><div class="metric-label">LCP</div></div>
-        <div class="metric"><div class="metric-value red">3.1s</div><div class="metric-label">FCP</div></div>
-        <div class="metric"><div class="metric-value green">39ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value red">4.6s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value yellow">2.9s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value yellow">397ms</div><div class="metric-label">TBT</div></div>
         <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
         <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
       </div>
-      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Reduce unused JavaScript (150ms)</div><div class="issue">Initial server response time was short</div><div class="issue">Avoid multiple page redirects</div></div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Minify JavaScript (450ms)</div><div class="issue">Initial server response time was short (10ms)</div><div class="issue">Avoid multiple page redirects</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">quick-start <span style="color:#888">/docs/quick-start</span></div>
+        <span class="device-badge mobile">mobile</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">76</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">98</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">90</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value yellow">3.3s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value green">1.1s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value yellow">513ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Reduce initial server response time (2439ms)</div><div class="issue">Minify JavaScript (410ms)</div><div class="issue">Avoid multiple page redirects</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">quick-start <span style="color:#888">/docs/quick-start</span></div>
+        <span class="device-badge desktop">desktop</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">55</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">98</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">90</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value yellow">3.3s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value green">1.1s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value yellow">575ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Minify JavaScript (420ms)</div><div class="issue">Initial server response time was short</div><div class="issue">Avoid multiple page redirects</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">installation <span style="color:#888">/docs/installation</span></div>
+        <span class="device-badge mobile">mobile</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">76</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">96</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value yellow">3.6s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value green">1.1s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value yellow">559ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.000</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Reduce initial server response time (737ms)</div><div class="issue">Minify JavaScript (600ms)</div><div class="issue">Avoid multiple page redirects</div></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">installation <span style="color:#888">/docs/installation</span></div>
+        <span class="device-badge desktop">desktop</span>
+      </div>
+      <div class="scores">
+        <div class="score-item"><div class="score-circle yellow">52</div><div class="score-label">P</div></div>
+        <div class="score-item"><div class="score-circle green">95</div><div class="score-label">A</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">BP</div></div>
+        <div class="score-item"><div class="score-circle green">100</div><div class="score-label">SEO</div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="metric-value red">4.4s</div><div class="metric-label">LCP</div></div>
+        <div class="metric"><div class="metric-value green">1.1s</div><div class="metric-label">FCP</div></div>
+        <div class="metric"><div class="metric-value yellow">441ms</div><div class="metric-label">TBT</div></div>
+        <div class="metric"><div class="metric-value green">0.054</div><div class="metric-label">CLS</div></div>
+        <div class="metric"><div class="metric-value ">-</div><div class="metric-label">INP</div></div>
+      </div>
+      <div class="issues"><div class="issues-title">Top Issues</div><div class="issue">Minify JavaScript (900ms)</div><div class="issue">Reduce unused JavaScript (490ms)</div><div class="issue">Initial server response time was short (8ms)</div></div>
     </div>
   </div>
 </body>

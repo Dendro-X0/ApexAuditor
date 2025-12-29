@@ -32,6 +32,7 @@ interface CliArgs {
   readonly openReport: boolean;
   readonly warmUp: boolean;
   readonly jsonOutput: boolean;
+  readonly showParallel: boolean;
 }
 
 const ANSI_RESET = "\u001B[0m" as const;
@@ -64,6 +65,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let openReport: boolean = false;
   let warmUp: boolean = false;
   let jsonOutput: boolean = false;
+  let showParallel: boolean = false;
   for (let i = 2; i < argv.length; i += 1) {
     const arg: string = argv[i];
     if ((arg === "--config" || arg === "-c") && i + 1 < argv.length) {
@@ -121,10 +123,12 @@ function parseArgs(argv: readonly string[]): CliArgs {
       warmUp = true;
     } else if (arg === "--json") {
       jsonOutput = true;
+    } else if (arg === "--show-parallel") {
+      showParallel = true;
     }
   }
   const finalConfigPath: string = configPath ?? "apex.config.json";
-  return { configPath: finalConfigPath, ci, colorMode, logLevelOverride, deviceFilter, throttlingMethodOverride, cpuSlowdownOverride, parallelOverride, openReport, warmUp, jsonOutput };
+  return { configPath: finalConfigPath, ci, colorMode, logLevelOverride, deviceFilter, throttlingMethodOverride, cpuSlowdownOverride, parallelOverride, openReport, warmUp, jsonOutput, showParallel };
 }
 
 /**
@@ -156,13 +160,13 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const summary: RunSummary = await runAuditsForConfig({ config: filteredConfig, configPath });
+  const summary: RunSummary = await runAuditsForConfig({ config: filteredConfig, configPath, showParallel: args.showParallel });
   const outputDir: string = resolve(".apex-auditor");
   await mkdir(outputDir, { recursive: true });
   await writeFile(resolve(outputDir, "summary.json"), JSON.stringify(summary, null, 2), "utf8");
-  const markdown: string = buildMarkdown(summary.results);
+  const markdown: string = buildMarkdown(summary);
   await writeFile(resolve(outputDir, "summary.md"), markdown, "utf8");
-  const html: string = buildHtmlReport(summary.results, summary.configPath);
+  const html: string = buildHtmlReport(summary);
   const reportPath: string = resolve(outputDir, "report.html");
   await writeFile(reportPath, html, "utf8");
   // Open HTML report in browser if requested
@@ -180,6 +184,7 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   const consoleTable: string = buildConsoleTable(summary.results, useColor);
   // eslint-disable-next-line no-console
   console.log(consoleTable);
+  printRunMeta(summary.meta, useColor);
   printSummaryStats(summary.results, useColor);
   printRedIssues(summary.results);
   printCiSummary(args, summary.results, effectiveConfig.budgets);
@@ -220,16 +225,35 @@ function filterPageDevices(page: ApexPageConfig, deviceFilter: ApexDevice): Apex
   };
 }
 
-function buildMarkdown(results: readonly PageDeviceSummary[]): string {
+function buildMarkdown(summary: RunSummary): string {
+  const meta = summary.meta;
+  const metaTable: string = [
+    "| Field | Value |",
+    "|-------|-------|",
+    `| Config | ${meta.configPath} |`,
+    `| Resolved parallel | ${meta.resolvedParallel} |`,
+    `| Warm-up | ${meta.warmUp ? "yes" : "no"} |`,
+    `| Throttling | ${meta.throttlingMethod} |`,
+    `| CPU slowdown | ${meta.cpuSlowdownMultiplier} |`,
+    `| Combos | ${meta.comboCount} |`,
+    `| Runs per combo | ${meta.runsPerCombo} |`,
+    `| Total steps | ${meta.totalSteps} |`,
+    `| Started | ${meta.startedAt} |`,
+    `| Completed | ${meta.completedAt} |`,
+    `| Elapsed | ${formatElapsedTime(meta.elapsedMs)} |`,
+    `| Avg per step | ${formatElapsedTime(meta.averageStepMs)} |`,
+  ].join("\n");
   const header: string = [
     "| Label | Path | Device | P | A | BP | SEO | LCP (s) | FCP (s) | TBT (ms) | CLS | INP (ms) | Error | Top issues |",
     "|-------|------|--------|---|---|----|-----|---------|---------|----------|-----|----------|-------|-----------|",
   ].join("\n");
-  const lines: string[] = results.map((result) => buildRow(result));
-  return `${header}\n${lines.join("\n")}`;
+  const lines: string[] = summary.results.map((result) => buildRow(result));
+  return `${metaTable}\n\n${header}\n${lines.join("\n")}`;
 }
 
-function buildHtmlReport(results: readonly PageDeviceSummary[], configPath: string): string {
+function buildHtmlReport(summary: RunSummary): string {
+  const results = summary.results;
+  const meta = summary.meta;
   const timestamp: string = new Date().toISOString();
   const rows: string = results.map((result) => buildHtmlRow(result)).join("\n");
   return `<!DOCTYPE html>
@@ -244,6 +268,10 @@ function buildHtmlReport(results: readonly PageDeviceSummary[], configPath: stri
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; }
     h1 { margin-bottom: 0.5rem; }
     .meta { color: #888; margin-bottom: 2rem; font-size: 0.9rem; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .meta-card { background: #16213e; border-radius: 10px; padding: 1rem; border: 1px solid #23304f; }
+    .meta-label { font-size: 0.8rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta-value { font-size: 1rem; font-weight: 600; color: #e5e7eb; }
     .cards { display: grid; gap: 1.5rem; }
     .card { background: var(--card); border-radius: 12px; padding: 1.5rem; }
     .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #333; padding-bottom: 1rem; }
@@ -272,7 +300,21 @@ function buildHtmlReport(results: readonly PageDeviceSummary[], configPath: stri
 </head>
 <body>
   <h1>ApexAuditor Report</h1>
-  <p class="meta">Generated: ${timestamp} | Config: ${escapeHtml(configPath)}</p>
+  <p class="meta">Generated: ${timestamp}</p>
+  <div class="meta-grid">
+    ${buildMetaCard("Config", escapeHtml(meta.configPath))}
+    ${buildMetaCard("Resolved parallel", meta.resolvedParallel.toString())}
+    ${buildMetaCard("Warm-up", meta.warmUp ? "Yes" : "No")}
+    ${buildMetaCard("Throttling", meta.throttlingMethod)}
+    ${buildMetaCard("CPU slowdown", meta.cpuSlowdownMultiplier.toString())}
+    ${buildMetaCard("Combos", meta.comboCount.toString())}
+    ${buildMetaCard("Runs per combo", meta.runsPerCombo.toString())}
+    ${buildMetaCard("Total steps", meta.totalSteps.toString())}
+    ${buildMetaCard("Elapsed", formatElapsedTime(meta.elapsedMs))}
+    ${buildMetaCard("Avg / step", formatElapsedTime(meta.averageStepMs))}
+    ${buildMetaCard("Started", meta.startedAt)}
+    ${buildMetaCard("Completed", meta.completedAt)}
+  </div>
   <div class="cards">
 ${rows}
   </div>
@@ -321,6 +363,32 @@ function buildScoreCircle(label: string, score: number | undefined): string {
 
 function buildMetricBox(label: string, value: string, colorClass: string): string {
   return `<div class="metric"><div class="metric-value ${colorClass}">${value}</div><div class="metric-label">${label}</div></div>`;
+}
+
+function buildMetaCard(label: string, value: string): string {
+  return `<div class="meta-card"><div class="meta-label">${escapeHtml(label)}</div><div class="meta-value">${escapeHtml(value)}</div></div>`;
+}
+
+function printRunMeta(meta: RunSummary["meta"], useColor: boolean): void {
+  const rows: { readonly label: string; readonly value: string }[] = [
+    { label: "Resolved parallel", value: meta.resolvedParallel.toString() },
+    { label: "Warm-up", value: meta.warmUp ? "Yes" : "No" },
+    { label: "Throttling", value: meta.throttlingMethod },
+    { label: "CPU slowdown", value: meta.cpuSlowdownMultiplier.toString() },
+    { label: "Combos", value: meta.comboCount.toString() },
+    { label: "Runs per combo", value: meta.runsPerCombo.toString() },
+    { label: "Total steps", value: meta.totalSteps.toString() },
+    { label: "Elapsed", value: formatElapsedTime(meta.elapsedMs) },
+    { label: "Avg / step", value: formatElapsedTime(meta.averageStepMs) },
+  ];
+  const padLabel = (label: string): string => label.padEnd(16, " ");
+  // eslint-disable-next-line no-console
+  console.log("\nMeta:");
+  for (const row of rows) {
+    const value: string = useColor ? `${ANSI_CYAN}${row.value}${ANSI_RESET}` : row.value;
+    // eslint-disable-next-line no-console
+    console.log(`  ${padLabel(row.label)} ${value}`);
+  }
 }
 
 function getMetricClass(value: number | undefined, good: number, warn: number): string {

@@ -1,5 +1,6 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { cpus, freemem } from "node:os";
 import lighthouse from "lighthouse";
 import { launch as launchChrome } from "chrome-launcher";
 import type { ApexConfig, ApexDevice, ApexThrottlingMethod, MetricValues, CategoryScores, OpportunitySummary, PageDeviceSummary, RunSummary } from "./types.js";
@@ -184,21 +185,20 @@ async function fetchUrl(url: string): Promise<void> {
 export async function runAuditsForConfig({
   config,
   configPath,
+  showParallel,
 }: {
   readonly config: ApexConfig;
   readonly configPath: string;
+  readonly showParallel?: boolean;
 }): Promise<RunSummary> {
   const runs: number = config.runs ?? 1;
-  const parallelCount: number = config.parallel ?? 1;
   const firstPage = config.pages[0];
   const healthCheckUrl: string = buildUrl({ baseUrl: config.baseUrl, path: firstPage.path, query: config.query });
   await ensureUrlReachable(healthCheckUrl);
-  
   // Perform warm-up requests if enabled
   if (config.warmUp) {
     await performWarmUp(config);
   }
-  
   const throttlingMethod: ApexThrottlingMethod = config.throttlingMethod ?? "simulate";
   const cpuSlowdownMultiplier: number = config.cpuSlowdownMultiplier ?? 4;
   const logLevel = config.logLevel ?? "error";
@@ -221,6 +221,12 @@ export async function runAuditsForConfig({
     }
   }
 
+  const startedAtMs: number = Date.now();
+  const parallelCount: number = resolveParallelCount({ requested: config.parallel, chromePort: config.chromePort, taskCount: tasks.length });
+  if (showParallel === true) {
+    // eslint-disable-next-line no-console
+    console.log(`Resolved parallel workers: ${parallelCount}`);
+  }
   const totalSteps: number = tasks.length * runs;
   let completedSteps = 0;
   const progressLock = { count: 0 };
@@ -228,7 +234,8 @@ export async function runAuditsForConfig({
   const updateProgress = (path: string, device: ApexDevice): void => {
     progressLock.count += 1;
     completedSteps = progressLock.count;
-    logProgress({ completed: completedSteps, total: totalSteps, path, device });
+    const etaMs: number | undefined = computeEtaMs({ startedAtMs, completed: completedSteps, total: totalSteps });
+    logProgress({ completed: completedSteps, total: totalSteps, path, device, etaMs });
   };
 
   let results: PageDeviceSummary[];
@@ -241,7 +248,26 @@ export async function runAuditsForConfig({
     results = await runParallel(tasks, parallelCount, updateProgress);
   }
 
-  return { configPath, results };
+  const completedAtMs: number = Date.now();
+  const elapsedMs: number = completedAtMs - startedAtMs;
+  const averageStepMs: number = totalSteps > 0 ? elapsedMs / totalSteps : 0;
+  return {
+    meta: {
+      configPath,
+      resolvedParallel: parallelCount,
+      totalSteps,
+      comboCount: tasks.length,
+      runsPerCombo: runs,
+      warmUp: config.warmUp === true,
+      throttlingMethod,
+      cpuSlowdownMultiplier,
+      startedAt: new Date(startedAtMs).toISOString(),
+      completedAt: new Date(completedAtMs).toISOString(),
+      elapsedMs,
+      averageStepMs,
+    },
+    results,
+  };
 }
 
 async function runSequential(
@@ -347,14 +373,17 @@ function logProgress({
   total,
   path,
   device,
+  etaMs,
 }: {
   readonly completed: number;
   readonly total: number;
   readonly path: string;
   readonly device: ApexDevice;
+  readonly etaMs?: number;
 }): void {
   const percentage: number = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const message: string = `Running audits ${completed}/${total} (${percentage}%) – ${path} [${device}]`;
+  const etaText: string = etaMs !== undefined ? ` | ETA ${formatEta(etaMs)}` : "";
+  const message: string = `Running audits ${completed}/${total} (${percentage}%) – ${path} [${device}]${etaText}`;
   if (typeof process !== "undefined" && process.stdout && typeof process.stdout.write === "function" && process.stdout.isTTY) {
     const padded: string = message.padEnd(80, " ");
     process.stdout.write(`\r${padded}`);
@@ -511,4 +540,52 @@ function averageOf(values: (number | undefined)[]): number | undefined {
   }
   const total: number = defined.reduce((sum, value) => sum + value, 0);
   return total / defined.length;
+}
+
+function resolveParallelCount({
+  requested,
+  chromePort,
+  taskCount,
+}: {
+  readonly requested: number | undefined;
+  readonly chromePort: number | undefined;
+  readonly taskCount: number;
+}): number {
+  if (chromePort !== undefined) {
+    return 1;
+  }
+  if (requested !== undefined) {
+    return requested;
+  }
+  const cpuBased: number = Math.max(1, Math.min(6, Math.floor(cpus().length / 2)));
+  const memoryBased: number = Math.max(1, Math.min(6, Math.floor(freemem() / 1_500_000_000)));
+  const suggested: number = Math.max(1, Math.min(cpuBased, memoryBased));
+  return Math.max(1, Math.min(10, Math.min(taskCount, suggested || 1)));
+}
+
+function computeEtaMs({
+  startedAtMs,
+  completed,
+  total,
+}: {
+  readonly startedAtMs: number;
+  readonly completed: number;
+  readonly total: number;
+}): number | undefined {
+  if (completed === 0 || total === 0 || completed > total) {
+    return undefined;
+  }
+  const elapsedMs: number = Date.now() - startedAtMs;
+  const averagePerStep: number = elapsedMs / completed;
+  const remainingSteps: number = total - completed;
+  return Math.max(0, Math.round(averagePerStep * remainingSteps));
+}
+
+function formatEta(etaMs: number): string {
+  const totalSeconds: number = Math.ceil(etaMs / 1000);
+  const minutes: number = Math.floor(totalSeconds / 60);
+  const seconds: number = totalSeconds % 60;
+  const minutesPart: string = minutes > 0 ? `${minutes}m ` : "";
+  const secondsPart: string = `${seconds}s`;
+  return `${minutesPart}${secondsPart}`.trim();
 }

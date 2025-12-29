@@ -87,6 +87,7 @@ apex-auditor audit --config apex.config.json
 | `--warm-up` | Perform warm-up requests before auditing |
 | `--open` | Auto-open HTML report in browser after audit |
 | `--json` | Output JSON to stdout (for piping) |
+| `--show-parallel` | Print the resolved parallel worker count before running |
 | `--mobile-only` | Only audit mobile device configurations |
 | `--desktop-only` | Only audit desktop device configurations |
 
@@ -97,8 +98,8 @@ apex-auditor audit --config apex.config.json
 After each audit, results are saved to `.apex-auditor/`:
 
 - `summary.json` – structured JSON results
-- `summary.md` – Markdown table
-- `report.html` – visual HTML report with score circles and metrics
+- `summary.md` – Markdown table plus a structured meta section (parallel, timings, throttling)
+- `report.html` – visual HTML report with score circles, metrics, and a meta grid (resolved parallel, elapsed, avg/step)
 
 ---
 

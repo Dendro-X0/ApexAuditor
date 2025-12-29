@@ -46,6 +46,8 @@ function printHelp(): void {
       "  --log-level <lvl>  Override Lighthouse log level: silent|error|info|verbose",
       "  --mobile-only      Run audits only for 'mobile' devices defined in the config",
       "  --desktop-only     Run audits only for 'desktop' devices defined in the config",
+      "  --parallel <n>     Override parallel workers (1-10). Default auto-tunes from CPU/memory.",
+      "  --show-parallel    Print the resolved parallel workers before running.",
     ].join("\n"),
   );
 }

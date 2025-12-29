@@ -346,6 +346,7 @@ function convertRouteToPage(route: DetectedRoute): ApexPageConfig {
 async function buildConfig(): Promise<ApexConfig> {
   const profileAnswer = await ask<ProjectProfileAnswer>(profileQuestion);
   const baseAnswers = await collectBaseAnswers();
+  console.log("Tip: parallel workers auto-tune from CPU/memory. Override later with --parallel <n> or inspect with --show-parallel.");
   const detectedPages = await maybeDetectPages(profileAnswer.profile);
   const pages = await collectPages(detectedPages);
   return {

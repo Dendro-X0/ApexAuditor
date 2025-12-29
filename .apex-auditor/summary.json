@@ -1,5 +1,18 @@
 {
-  "configPath": "E:\\Web Project\\experimental-workspace\\apex-auditor-workspace\\apex-auditor\\.apex-auditor\\quickstart.config.json",
+  "meta": {
+    "configPath": "E:\\Web Project\\experimental-workspace\\apex-auditor-workspace\\docs\\apex.config.json",
+    "resolvedParallel": 1,
+    "totalSteps": 6,
+    "comboCount": 6,
+    "runsPerCombo": 1,
+    "warmUp": false,
+    "throttlingMethod": "simulate",
+    "cpuSlowdownMultiplier": 4,
+    "startedAt": "2025-12-29T16:49:07.768Z",
+    "completedAt": "2025-12-29T16:50:25.302Z",
+    "elapsedMs": 77534,
+    "averageStepMs": 12922.333333333334
+  },
   "results": [
     {
       "url": "http://localhost:3000/",
@@ -7,33 +20,34 @@
       "label": "home",
       "device": "mobile",
       "scores": {
-        "performance": 64,
+        "performance": 54,
         "accessibility": 100,
         "bestPractices": 96,
         "seo": 100
       },
       "metrics": {
-        "lcpMs": 5840.573899999999,
-        "fcpMs": 5840.573899999999,
-        "tbtMs": 47.5,
+        "lcpMs": 11926.254,
+        "fcpMs": 9011.820000000002,
+        "tbtMs": 181,
         "cls": 0
       },
       "opportunities": [
         {
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "estimatedSavingsMs": 1940,
+          "estimatedSavingsBytes": 306996
+        },
+        {
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 1300,
+          "estimatedSavingsBytes": 204541
+        },
+        {
           "id": "server-response-time",
           "title": "Initial server response time was short",
-          "estimatedSavingsMs": 0
-        },
-        {
-          "id": "redirects",
-          "title": "Avoid multiple page redirects",
-          "estimatedSavingsMs": 0
-        },
-        {
-          "id": "unminified-css",
-          "title": "Minify CSS",
-          "estimatedSavingsMs": 0,
-          "estimatedSavingsBytes": 0
+          "estimatedSavingsMs": 15
         }
       ]
     },
@@ -43,23 +57,95 @@
       "label": "home",
       "device": "desktop",
       "scores": {
-        "performance": 61,
+        "performance": 43,
         "accessibility": 100,
         "bestPractices": 96,
         "seo": 100
       },
       "metrics": {
-        "lcpMs": 4342.814768964053,
-        "fcpMs": 3140.7250978212937,
-        "tbtMs": 39,
+        "lcpMs": 4599.309099999999,
+        "fcpMs": 2863.0483000000004,
+        "tbtMs": 396.6141000000007,
         "cls": 0
       },
       "opportunities": [
         {
-          "id": "unused-javascript",
-          "title": "Reduce unused JavaScript",
-          "estimatedSavingsMs": 150,
-          "estimatedSavingsBytes": 91319
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 450,
+          "estimatedSavingsBytes": 204541
+        },
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "estimatedSavingsMs": 10
+        },
+        {
+          "id": "redirects",
+          "title": "Avoid multiple page redirects",
+          "estimatedSavingsMs": 0
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:3000/docs/quick-start",
+      "path": "/docs/quick-start",
+      "label": "quick-start",
+      "device": "mobile",
+      "scores": {
+        "performance": 76,
+        "accessibility": 98,
+        "bestPractices": 100,
+        "seo": 90
+      },
+      "metrics": {
+        "lcpMs": 3336.685,
+        "fcpMs": 1064.674,
+        "tbtMs": 512.5,
+        "cls": 0
+      },
+      "opportunities": [
+        {
+          "id": "server-response-time",
+          "title": "Reduce initial server response time",
+          "estimatedSavingsMs": 2439
+        },
+        {
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 410,
+          "estimatedSavingsBytes": 208533
+        },
+        {
+          "id": "redirects",
+          "title": "Avoid multiple page redirects",
+          "estimatedSavingsMs": 0
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:3000/docs/quick-start",
+      "path": "/docs/quick-start",
+      "label": "quick-start",
+      "device": "desktop",
+      "scores": {
+        "performance": 55,
+        "accessibility": 98,
+        "bestPractices": 100,
+        "seo": 90
+      },
+      "metrics": {
+        "lcpMs": 3334.0599999999995,
+        "fcpMs": 1066.812,
+        "tbtMs": 575.4999999999995,
+        "cls": 0
+      },
+      "opportunities": [
+        {
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 420,
+          "estimatedSavingsBytes": 208533
         },
         {
           "id": "server-response-time",
@@ -70,6 +156,79 @@
           "id": "redirects",
           "title": "Avoid multiple page redirects",
           "estimatedSavingsMs": 0
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:3000/docs/installation",
+      "path": "/docs/installation",
+      "label": "installation",
+      "device": "mobile",
+      "scores": {
+        "performance": 76,
+        "accessibility": 96,
+        "bestPractices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "lcpMs": 3624.6659999999997,
+        "fcpMs": 1066.1665,
+        "tbtMs": 559,
+        "cls": 0
+      },
+      "opportunities": [
+        {
+          "id": "server-response-time",
+          "title": "Reduce initial server response time",
+          "estimatedSavingsMs": 737
+        },
+        {
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 600,
+          "estimatedSavingsBytes": 198760
+        },
+        {
+          "id": "redirects",
+          "title": "Avoid multiple page redirects",
+          "estimatedSavingsMs": 0
+        }
+      ]
+    },
+    {
+      "url": "http://localhost:3000/docs/installation",
+      "path": "/docs/installation",
+      "label": "installation",
+      "device": "desktop",
+      "scores": {
+        "performance": 52,
+        "accessibility": 95,
+        "bestPractices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "lcpMs": 4430.5952,
+        "fcpMs": 1086.1984,
+        "tbtMs": 441,
+        "cls": 0.05441109054752561
+      },
+      "opportunities": [
+        {
+          "id": "unminified-javascript",
+          "title": "Minify JavaScript",
+          "estimatedSavingsMs": 900,
+          "estimatedSavingsBytes": 198760
+        },
+        {
+          "id": "unused-javascript",
+          "title": "Reduce unused JavaScript",
+          "estimatedSavingsMs": 490,
+          "estimatedSavingsBytes": 302026
+        },
+        {
+          "id": "server-response-time",
+          "title": "Initial server response time was short",
+          "estimatedSavingsMs": 8
         }
       ]
     }

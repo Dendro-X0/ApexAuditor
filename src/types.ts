@@ -100,7 +100,22 @@ export interface PageDeviceSummary {
   readonly runtimeErrorMessage?: string;
 }
 
-export interface RunSummary {
+export interface RunMeta {
   readonly configPath: string;
+  readonly resolvedParallel: number;
+  readonly totalSteps: number;
+  readonly comboCount: number;
+  readonly runsPerCombo: number;
+  readonly warmUp: boolean;
+  readonly throttlingMethod: ApexThrottlingMethod;
+  readonly cpuSlowdownMultiplier: number;
+  readonly startedAt: string;
+  readonly completedAt: string;
+  readonly elapsedMs: number;
+  readonly averageStepMs: number;
+}
+
+export interface RunSummary {
+  readonly meta: RunMeta;
   readonly results: readonly PageDeviceSummary[];
 }
