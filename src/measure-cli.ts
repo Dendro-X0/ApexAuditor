@@ -15,6 +15,54 @@ type MeasureArgs = {
   readonly jsonOutput: boolean;
 };
 
+function printSummary(summary: MeasureSummary): void {
+  const combos: number = summary.meta.comboCount;
+  if (combos === 0) {
+    // eslint-disable-next-line no-console
+    console.log("No measure results.");
+    return;
+  }
+  let longTaskCount = 0;
+  let longTaskTotalMs = 0;
+  let longTaskMaxMs = 0;
+  let scriptingTotalMs = 0;
+  let scriptingCount = 0;
+  let totalRequests = 0;
+  let totalBytes = 0;
+  let thirdPartyRequests = 0;
+  let thirdPartyBytes = 0;
+  let cacheHitsApprox = 0;
+  let lateScripts = 0;
+  for (const r of summary.results) {
+    longTaskCount += r.longTasks.count;
+    longTaskTotalMs += r.longTasks.totalMs;
+    longTaskMaxMs = Math.max(longTaskMaxMs, r.longTasks.maxMs);
+    if (r.scriptingDurationMs !== undefined) {
+      scriptingTotalMs += r.scriptingDurationMs;
+      scriptingCount += 1;
+    }
+    totalRequests += r.network.totalRequests;
+    totalBytes += r.network.totalBytes;
+    thirdPartyRequests += r.network.thirdPartyRequests;
+    thirdPartyBytes += r.network.thirdPartyBytes;
+    cacheHitsApprox += Math.round(r.network.cacheHitRatio * r.network.totalRequests);
+    lateScripts += r.network.lateScriptRequests;
+  }
+  const avgScriptingMs: number = scriptingCount > 0 ? Math.round(scriptingTotalMs / scriptingCount) : 0;
+  const cacheHitRatio: number = totalRequests > 0 ? cacheHitsApprox / totalRequests : 0;
+  const thirdPartyShare: number = totalRequests > 0 ? thirdPartyRequests / totalRequests : 0;
+  // eslint-disable-next-line no-console
+  console.log(
+    [
+      "Summary:",
+      `  Combos: ${combos}`,
+      `  Long tasks: ${longTaskCount} tasks, total ${Math.round(longTaskTotalMs)}ms, max ${Math.round(longTaskMaxMs)}ms`,
+      `  Scripting: avg ${avgScriptingMs}ms`,
+      `  Network: ${totalRequests} requests, ${Math.round(totalBytes / 1024)} KB; 3P ${thirdPartyRequests} (${Math.round(thirdPartyShare * 100)}%), cache-hit ${Math.round(cacheHitRatio * 100)}%, late scripts ${lateScripts}`,
+    ].join("\n"),
+  );
+}
+
 function parseArgs(argv: readonly string[]): MeasureArgs {
   let configPath: string | undefined;
   let deviceFilter: DeviceFilterFlag | undefined;
@@ -100,4 +148,5 @@ export async function runMeasureCli(argv: readonly string[]): Promise<void> {
   console.log(`Measured ${summary.meta.comboCount} combos in ${Math.round(summary.meta.elapsedMs / 1000)}s (avg ${summary.meta.averageComboMs}ms/combo).`);
   // eslint-disable-next-line no-console
   console.log(`Wrote .apex-auditor/measure-summary.json`);
+  printSummary(summary);
 }

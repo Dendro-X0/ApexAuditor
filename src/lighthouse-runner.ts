@@ -558,12 +558,16 @@ export async function runAuditsForConfig({
   showParallel,
   onlyCategories,
   signal,
+  onAfterWarmUp,
+  onProgress,
 }: {
   readonly config: ApexConfig;
   readonly configPath: string;
   readonly showParallel?: boolean;
   readonly onlyCategories?: readonly ApexCategory[];
   readonly signal?: AbortSignal;
+  readonly onAfterWarmUp?: () => void;
+  readonly onProgress?: (params: { readonly completed: number; readonly total: number; readonly path: string; readonly device: ApexDevice; readonly etaMs?: number }) => void;
 }): Promise<RunSummary> {
   const runs: number = 1;
   if (config.runs !== undefined && config.runs !== 1) {
@@ -575,6 +579,9 @@ export async function runAuditsForConfig({
   // Perform warm-up requests if enabled
   if (config.warmUp) {
     await performWarmUp(config);
+  }
+  if (typeof onAfterWarmUp === "function") {
+    onAfterWarmUp();
   }
   const throttlingMethod: ApexThrottlingMethod = config.throttlingMethod ?? "simulate";
   const cpuSlowdownMultiplier: number = config.cpuSlowdownMultiplier ?? 4;
@@ -658,6 +665,9 @@ export async function runAuditsForConfig({
     completedSteps = progressLock.count;
     const etaMs: number | undefined = computeEtaMs({ startedAtMs, completed: completedSteps, total: totalSteps });
     logProgress({ completed: completedSteps, total: totalSteps, path, device, etaMs });
+    if (typeof onProgress === "function") {
+      onProgress({ completed: completedSteps, total: totalSteps, path, device, etaMs });
+    }
   };
 
   let resultsFromRunner: PageDeviceSummary[];

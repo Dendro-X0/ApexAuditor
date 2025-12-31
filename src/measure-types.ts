@@ -12,6 +12,21 @@ type MeasureVitals = {
   readonly inpMs?: number;
 };
 
+type MeasureLongTasks = {
+  readonly count: number;
+  readonly totalMs: number;
+  readonly maxMs: number;
+};
+
+type MeasureNetwork = {
+  readonly totalRequests: number;
+  readonly totalBytes: number;
+  readonly thirdPartyRequests: number;
+  readonly thirdPartyBytes: number;
+  readonly cacheHitRatio: number;
+  readonly lateScriptRequests: number;
+};
+
 type MeasureArtifacts = {
   readonly screenshotPath?: string;
   readonly consoleErrors: readonly string[];
@@ -24,6 +39,9 @@ type MeasurePageDeviceSummary = {
   readonly device: ApexDevice;
   readonly timings: MeasureTiming;
   readonly vitals: MeasureVitals;
+  readonly longTasks: MeasureLongTasks;
+  readonly scriptingDurationMs?: number;
+  readonly network: MeasureNetwork;
   readonly artifacts: MeasureArtifacts;
   readonly runtimeErrorMessage?: string;
 };

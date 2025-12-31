@@ -6,10 +6,13 @@
 - Export output redesigned: structured section layout with clean dividers, numbered suggested commands in a copy/paste block, and non-nested tables for regressions and deep audit targets.
 - Inline score deltas and regressions-only filtering in summary/export views to spotlight changes between runs.
 - Persistent shell-ready flow after `audit`/`measure` completes, with friendly prompts for missing configs and a new `init` command to launch the wizard.
+- Shell UX improvements: Esc cancels long-running commands and returns to prompt; `audit` shows runtime page progress with page counts and ETA.
+- Always-on accessibility sweep (axe-core) after audits with saved artifacts and a "top issues" summary.
 
 ### Changed
 - Removed all background shading from CLI tables; kept colorized text only for a cleaner, legible terminal experience.
 - Simplified wizard flow: automatic route detection and skipping manual page prompts when detections succeed.
+- Audit progress spinner is now blue and starts after warm-up completes.
 
 ### Fixed
 - Lighthouse runner throttling adjusted to avoid double throttling in devtools mode; added jittered backoff and transient error retries for stability.

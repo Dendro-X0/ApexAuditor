@@ -1,212 +1,83 @@
-# Configuration and Route Detection
+# Configuration
 
-This document describes the `apex.config.json` format and how ApexAuditor discovers routes for popular frameworks.
-
----
+This document describes the `apex.config.json` format.
 
 ## 1. ApexConfig shape
 
-TypeScript view of the config:
+Key points:
 
-```ts
-export type ApexDevice = "mobile" | "desktop";
+- `pages` defines which routes to check and which devices to run against.
+- **Runs-per-combo is always 1**. Re-run the same command to compare results.
+- Budgets are optional and are used for CI gating.
 
-export interface ApexPageConfig {
-  readonly path: string;
-  readonly label: string;
-  readonly devices: readonly ApexDevice[];
-}
+Minimal example:
 
-export interface CategoryBudgetThresholds {
-  readonly performance?: number;
-  readonly accessibility?: number;
-  readonly bestPractices?: number;
-  readonly seo?: number;
-}
-
-export interface MetricBudgetThresholds {
-  readonly lcpMs?: number;
-  readonly fcpMs?: number;
-  readonly tbtMs?: number;
-  readonly cls?: number;
-}
-
-export interface ApexBudgets {
-  readonly categories?: CategoryBudgetThresholds;
-  readonly metrics?: MetricBudgetThresholds;
-}
-
-export type ApexThrottlingMethod = "simulate" | "devtools";
-
-export interface ApexConfig {
-  readonly baseUrl: string;
-  readonly query?: string;
-  readonly chromePort?: number;
-  readonly runs?: number;
-  readonly logLevel?: "silent" | "error" | "info" | "verbose";
-  readonly throttlingMethod?: ApexThrottlingMethod;
-  readonly cpuSlowdownMultiplier?: number;
-  readonly parallel?: number;
-  readonly warmUp?: boolean;
-  readonly pages: readonly ApexPageConfig[];
-  readonly budgets?: ApexBudgets;
+```json
+{
+  "baseUrl": "http://localhost:3000",
+  "pages": [
+    { "path": "/", "label": "home", "devices": ["mobile", "desktop"] }
+  ]
 }
 ```
 
-### Required fields
+Common fields:
 
-- **`baseUrl`**
-  - Full origin where your app is available, without a trailing slash.
-  - Example: `"http://localhost:3000"`.
-- **`pages`**
-  - Non-empty array of `ApexPageConfig` entries.
-  - Each page must have a `path` that starts with `/`.
+- `baseUrl`
+- `query` (optional query string appended to every URL)
+- `throttlingMethod` (`simulate` or `devtools`)
+- `cpuSlowdownMultiplier` (default 4)
+- `parallel` (optional; the CLI will auto-tune a sensible default)
+- `warmUp` (optional)
+- `auditTimeoutMs` (optional per-audit timeout)
+- `incremental` + `buildId` (optional cache reuse)
+- `budgets` (optional)
 
-### Optional fields
+## 2. Pages
 
-- **`query`**
-  - Query string appended to every audited URL.
-  - Use this to disable analytics or enable debug modes; example: `"?lhci=1"`.
-- **`chromePort`**
-  - Advanced: attach to an existing Chrome instance instead of launching a headless one.
-  - When omitted, ApexAuditor launches its own headless Chrome via `chrome-launcher`.
-- **`runs`**
-  - Number of Lighthouse runs per `page × device`.
-  - Must be a positive integer; defaults to `1`.
-- **`logLevel`**
-  - Lighthouse log level; one of `"silent" | "error" | "info" | "verbose"`.
-  - Can be overridden at runtime with `--log-level` on the CLI.
-- **`throttlingMethod`**
-  - Controls how Lighthouse simulates network/CPU throttling.
-  - `"simulate"` (default): Fast, uses Lantern simulation. May produce lower scores than Chrome DevTools.
-  - `"devtools"`: More accurate, applies real throttling via DevTools protocol. Matches Chrome DevTools results but slower.
-  - Can be overridden at runtime with `--throttling` on the CLI.
-- **`cpuSlowdownMultiplier`**
-  - CPU throttling multiplier. Default is `4` (simulates mid-tier mobile device).
-  - Lower values (1-2) for weaker host machines, higher (6-10) for powerful desktops.
-  - Use [Lighthouse's benchmark calculator](https://lighthouse-cpu-throttling-calculator.vercel.app/) to find optimal value.
-  - Can be overridden at runtime with `--cpu-slowdown` on the CLI.
-- **`parallel`**
-  - Number of pages to audit in parallel. Default is `1` (sequential).
-  - Higher values speed up batch testing but may reduce accuracy due to resource contention.
-  - Recommended: `2-4` for speed, `1` for most accurate results.
-  - Can be overridden at runtime with `--parallel` on the CLI.
-- **`warmUp`**
-  - Whether to perform warm-up HTTP requests to all pages before auditing.
-  - Helps avoid cold start penalties on the first audit.
-  - Can be overridden at runtime with `--warm-up` on the CLI.
-- **`budgets`**
-  - Optional thresholds for CI gating; see `cli-and-ci.md`.
+Each page entry:
 
-### Page configuration
-
-Each `ApexPageConfig` describes a URL path and devices to audit:
-
-```jsonc
-{
-  "path": "/blog",
-  "label": "blog",
-  "devices": ["mobile", "desktop"]
-}
+```json
+{ "path": "/pricing", "label": "pricing", "devices": ["mobile", "desktop"] }
 ```
 
 Rules:
 
 - `path` must start with `/`.
-- `label` is used in reports. If omitted, it falls back to the `path`.
-- `devices` can contain `"mobile"`, `"desktop"`, or both.
-  - If omitted, it defaults to `["mobile"]`.
+- `label` is used in reports.
+- `devices` is a list of `mobile` and/or `desktop`.
 
----
+## 3. Budgets
 
-## 2. Budgets (for CI)
-
-Budgets let you define **minimum acceptable scores** and **maximum acceptable metric values**.
+Budgets gate CI.
 
 Example:
 
-```jsonc
+```json
 {
   "baseUrl": "http://localhost:3000",
-  "pages": [
-    { "path": "/", "label": "home", "devices": ["mobile", "desktop"] }
-  ],
+  "pages": [{ "path": "/", "label": "home", "devices": ["mobile"] }],
   "budgets": {
-    "categories": {
-      "performance": 90,
-      "accessibility": 95
-    },
-    "metrics": {
-      "lcpMs": 2500,
-      "cls": 0.1
-    }
+    "categories": { "performance": 90, "accessibility": 95, "bestPractices": 90, "seo": 90 },
+    "metrics": { "lcpMs": 2500, "inpMs": 200, "cls": 0.1 }
   }
 }
 ```
 
 Rules:
 
-- Category budgets (`performance`, `accessibility`, `bestPractices`, `seo`)
-  - Values must be numbers between 0 and 100.
-  - A violation occurs when the actual score is **less than** the threshold.
-- Metric budgets (`lcpMs`, `fcpMs`, `tbtMs`, `cls`)
-  - Values must be non-negative numbers.
-  - A violation occurs when the actual value is **greater than** the threshold.
+- Category budgets are minimum scores (0-100).
+- Metric budgets are maximum values.
 
-When you run:
+## 4. Warm-up
 
-```bash
-npx apex-auditor audit --ci
-```
+Set `warmUp: true` to run a lightweight warm-up request pass before Lighthouse audits.
 
-ApexAuditor:
+## 5. Incremental caching
 
-- Evaluates all configured budgets against the aggregated results.
-- Prints a summary of any violations.
-- Sets a non-zero exit code if there are violations (to fail CI jobs).
+Incremental mode reuses cached results for unchanged combos between runs.
 
-See `cli-and-ci.md` for end-to-end CI examples.
+- Set `incremental: true`.
+- Provide a `buildId` (string).
 
----
-
-## 3. Route detection overview
-
-ApexAuditor includes pluggable detectors to reduce the amount of manual configuration you need. These detectors are used by the **wizard** and **quickstart** flows.
-
-### Supported frameworks
-
-- **Next.js App Router**
-  - Looks for `app/` and `src/app/` directories.
-  - In monorepos, also scans `apps/*/app` and `packages/*/app`.
-  - Treats `**/page.{tsx,ts,jsx,js}` as route entries.
-- **Next.js Pages Router**
-  - Looks for `pages/` and `src/pages/` directories, including under `apps/*` and `packages/*`.
-  - Ignores `api/` routes and files starting with `_`.
-- **Remix**
-  - Looks for `app/routes` and parses route filenames into URL patterns.
-- **SPA / static HTML**
-  - Searches for `index.html` in common build folders such as `dist/`, `build/`, and `public/`.
-  - Extracts internal routes from `href="/..."` and `data-route="/..."` attributes.
-
-The detectors always respect an upper limit on the number of routes returned to keep quickstart fast.
-
-### Monorepos and discovery
-
-For complex workspaces, the wizard can:
-
-- Start from a repo root that you provide.
-- Use a breadth-first search to find candidate Next.js projects by
-  - presence of `next.config.*`, or
-  - `package.json` dependencies including `next`.
-- Prompt you to choose which Next.js app to use when multiple are found.
-
-Once a project root is chosen, the relevant detector is run under that folder.
-
-### Editing detected routes
-
-Detected routes are **suggestions** only:
-
-- In the wizard, you choose which ones to keep via a multi-select prompt.
-- After generation, you can freely edit `apex.config.json` to add, modify, or remove pages.
-
-Quickstart does not prompt; it simply uses the top detected routes (or falls back to `/`). If you like the result, you can copy `.apex-auditor/quickstart.config.json` into a permanent `apex.config.json`.
+See `cli-and-ci.md` for recommended CI usage.

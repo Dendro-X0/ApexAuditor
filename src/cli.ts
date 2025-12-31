@@ -2,7 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { exec } from "node:child_process";
 import { loadConfig } from "./config.js";
+import type { AxeResult, AxeSummary, AxeViolation } from "./accessibility-types.js";
+import { runAccessibilityAudit } from "./accessibility.js";
+import { startSpinner, stopSpinner, updateSpinnerMessage } from "./spinner.js";
 import { runAuditsForConfig } from "./lighthouse-runner.js";
+import { postJsonWebhook } from "./webhooks.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -24,9 +28,22 @@ type CliLogLevel = "silent" | "error" | "info" | "verbose";
 
 type CliColorMode = "auto" | "always" | "never";
 
+async function runCommand(command: string, cwd: string): Promise<string> {
+  return await new Promise<string>((resolveCommand, rejectCommand) => {
+    exec(command, { cwd }, (error, stdout, stderr) => {
+      if (error) {
+        rejectCommand(new Error(stderr.trim() || error.message));
+        return;
+      }
+      resolveCommand(stdout);
+    });
+  });
+}
+
 interface CliArgs {
   readonly configPath: string;
   readonly ci: boolean;
+  readonly failOnBudget: boolean;
   readonly colorMode: CliColorMode;
   readonly logLevelOverride: CliLogLevel | undefined;
   readonly deviceFilter: ApexDevice | undefined;
@@ -52,6 +69,11 @@ interface CliArgs {
   readonly overview: boolean;
   readonly overviewCombos: number | undefined;
   readonly regressionsOnly: boolean;
+  readonly changedOnly: boolean;
+  readonly rerunFailing: boolean;
+  readonly accessibilityPass: boolean;
+  readonly webhookUrl: string | undefined;
+  readonly webhookAlways: boolean;
 }
 
 function colorScore(score: number | undefined, theme: UiTheme): string {
@@ -87,13 +109,147 @@ type RegressionLine = {
   readonly deltaP: number;
 };
 
+type BudgetViolationLine = {
+  readonly pageLabel: string;
+  readonly path: string;
+  readonly device: ApexDevice;
+  readonly kind: "category" | "metric";
+  readonly id: string;
+  readonly value: number;
+  readonly limit: number;
+};
+
 type ShareableExport = {
   readonly generatedAt: string;
   readonly regressions: readonly RegressionLine[];
   readonly topIssues: readonly { readonly title: string; readonly count: number; readonly totalMs: number }[];
   readonly deepAuditTargets: readonly { readonly label: string; readonly path: string; readonly device: ApexDevice; readonly score: number }[];
   readonly suggestedCommands: readonly string[];
+  readonly budgets?: ApexBudgets;
+  readonly budgetViolations: readonly BudgetViolationLine[];
+  readonly budgetPassed: boolean;
 };
+
+type AxeImpactCounts = {
+  readonly critical: number;
+  readonly serious: number;
+  readonly moderate: number;
+  readonly minor: number;
+};
+
+type AccessibilitySummary = {
+  readonly impactCounts: AxeImpactCounts;
+  readonly errored: number;
+  readonly total: number;
+};
+
+type WebhookPayload = {
+  readonly type: "apex-auditor";
+  readonly buildId?: string;
+  readonly elapsedMs: number;
+  readonly regressions: readonly RegressionLine[];
+  readonly budget: {
+    readonly passed: boolean;
+    readonly violations: number;
+  };
+  readonly accessibility?: {
+    readonly critical: number;
+    readonly serious: number;
+    readonly moderate: number;
+    readonly minor: number;
+    readonly errored: number;
+    readonly total: number;
+  };
+  readonly links?: {
+    readonly reportHtml?: string;
+    readonly exportJson?: string;
+    readonly accessibilitySummary?: string;
+  };
+};
+
+function buildWebhookPayload(params: {
+  readonly current: RunSummary;
+  readonly previous: RunSummary | undefined;
+  readonly budgetViolations: readonly BudgetViolation[];
+  readonly accessibility?: AccessibilitySummary;
+  readonly reportPath: string;
+  readonly exportPath: string;
+  readonly accessibilityPath?: string;
+}): WebhookPayload {
+  const regressions: readonly RegressionLine[] = collectRegressions(params.previous, params.current);
+  const budgetPassed: boolean = params.budgetViolations.length === 0;
+  return {
+    type: "apex-auditor",
+    buildId: params.current.meta.buildId,
+    elapsedMs: params.current.meta.elapsedMs,
+    regressions,
+    budget: {
+      passed: budgetPassed,
+      violations: params.budgetViolations.length,
+    },
+    accessibility:
+      params.accessibility === undefined
+        ? undefined
+        : {
+            critical: params.accessibility.impactCounts.critical,
+            serious: params.accessibility.impactCounts.serious,
+            moderate: params.accessibility.impactCounts.moderate,
+            minor: params.accessibility.impactCounts.minor,
+            errored: params.accessibility.errored,
+            total: params.accessibility.total,
+          },
+    links: {
+      reportHtml: params.reportPath,
+      exportJson: params.exportPath,
+      accessibilitySummary: params.accessibilityPath,
+    },
+  };
+}
+
+function shouldSendWebhook(regressions: readonly RegressionLine[], budgetViolations: readonly BudgetViolation[]): boolean {
+  return regressions.length > 0 || budgetViolations.length > 0;
+}
+
+function summariseAccessibility(results: AxeSummary): AccessibilitySummary {
+  const counts: { critical: number; serious: number; moderate: number; minor: number } = {
+    critical: 0,
+    serious: 0,
+    moderate: 0,
+    minor: 0,
+  };
+  let errored = 0;
+  for (const result of results.results) {
+    if (result.runtimeErrorMessage) {
+      errored += 1;
+      continue;
+    }
+    for (const violation of result.violations) {
+      const impact: string | undefined = violation.impact;
+      if (impact === "critical") counts.critical += 1;
+      else if (impact === "serious") counts.serious += 1;
+      else if (impact === "moderate") counts.moderate += 1;
+      else if (impact === "minor") counts.minor += 1;
+    }
+  }
+  return { impactCounts: { ...counts }, errored, total: results.results.length };
+}
+
+function buildAccessibilityPanel(summary: AccessibilitySummary, useColor: boolean): string {
+  const theme: UiTheme = new UiTheme({ noColor: !useColor });
+  const headers: readonly string[] = ["Impact", "Count"];
+  const rows: string[][] = [
+    ["critical", summary.impactCounts.critical.toString()],
+    ["serious", summary.impactCounts.serious.toString()],
+    ["moderate", summary.impactCounts.moderate.toString()],
+    ["minor", summary.impactCounts.minor.toString()],
+  ];
+  const table: string = renderTable({ headers, rows });
+  const metaLines: string[] = [
+    `${theme.bold("Total combos")}: ${summary.total}`,
+    `${theme.bold("Errored combos")}: ${summary.errored}`,
+  ];
+  return `${table}\n${metaLines.join("\n")}`;
+}
 
 function buildSectionIndex(useColor: boolean): string {
   const theme: UiTheme = new UiTheme({ noColor: !useColor });
@@ -110,6 +266,50 @@ function buildSectionIndex(useColor: boolean): string {
     `  9) Export (regressions/issues)`,
   ];
   return lines.join("\n");
+}
+
+function selectTopViolations(result: AxeResult, limit: number): readonly AxeViolation[] {
+  const impactRank: Record<string, number> = { critical: 1, serious: 2, moderate: 3, minor: 4 };
+  return [...result.violations]
+    .sort((a, b) => {
+      const rankA: number = impactRank[a.impact ?? ""] ?? 5;
+      const rankB: number = impactRank[b.impact ?? ""] ?? 5;
+      if (rankA !== rankB) {
+        return rankA - rankB;
+      }
+      const nodesA: number = a.nodes.length;
+      const nodesB: number = b.nodes.length;
+      return nodesB - nodesA;
+    })
+    .slice(0, limit);
+}
+
+function buildAccessibilityIssuesPanel(results: readonly AxeResult[], useColor: boolean): string {
+  const theme: UiTheme = new UiTheme({ noColor: !useColor });
+  if (results.length === 0) {
+    return renderPanel({ title: theme.bold("Accessibility (top issues)"), lines: [theme.dim("No accessibility results.")] });
+  }
+  const lines: string[] = [];
+  for (const result of results) {
+    lines.push(`${theme.bold(`${result.label} ${result.path} [${result.device}]`)}`);
+    if (result.runtimeErrorMessage) {
+      lines.push(`- ${theme.red("Error")}: ${result.runtimeErrorMessage}`);
+      continue;
+    }
+    const tops: readonly AxeViolation[] = selectTopViolations(result, 3);
+    if (tops.length === 0) {
+      lines.push(theme.dim("- No violations found"));
+      continue;
+    }
+    for (const violation of tops) {
+      const impact: string = violation.impact ? `${violation.impact}: ` : "";
+      const title: string = violation.help ?? violation.id;
+      const targetSample: string = violation.nodes[0]?.target?.[0] ?? "";
+      const detail: string = targetSample ? ` (${targetSample})` : "";
+      lines.push(`- ${impact}${title}${detail}`);
+    }
+  }
+  return renderPanel({ title: theme.bold("Accessibility (top issues)"), lines });
 }
 
 function severityBackground(score: number | undefined): string {
@@ -264,6 +464,7 @@ function buildShareableExport(params: {
   readonly configPath: string;
   readonly previousSummary: RunSummary | undefined;
   readonly current: RunSummary;
+  readonly budgets: ApexBudgets | undefined;
 }): ShareableExport {
   const regressions: readonly RegressionLine[] = collectRegressions(params.previousSummary, params.current);
   const deepAuditTargets = collectDeepAuditTargets(params.current.results);
@@ -271,12 +472,27 @@ function buildShareableExport(params: {
     params.configPath,
     deepAuditTargets.map((t) => ({ path: t.path, device: t.device })),
   );
+  const budgetViolations: readonly BudgetViolationLine[] =
+    params.budgets === undefined
+      ? []
+      : collectBudgetViolations(params.current.results, params.budgets).map((v) => ({
+          pageLabel: v.pageLabel,
+          path: v.path,
+          device: v.device,
+          kind: v.kind,
+          id: v.id,
+          value: v.value,
+          limit: v.limit,
+        }));
   return {
     generatedAt: new Date().toISOString(),
     regressions,
     topIssues: collectTopIssues(params.current.results),
     deepAuditTargets,
     suggestedCommands,
+    budgets: params.budgets,
+    budgetViolations,
+    budgetPassed: budgetViolations.length === 0,
   };
 }
 
@@ -302,6 +518,49 @@ function buildExportPanel(params: { readonly exportPath: string; readonly useCol
   lines.push(theme.dim(`Path: ${params.exportPath}`));
   lines.push(theme.dim(`Generated: ${params.share.generatedAt}`));
   divider();
+
+  // Budgets
+  if (params.share.budgets !== undefined) {
+    const statusText: string = params.share.budgetPassed ? theme.green("passed") : theme.red("failed");
+    lines.push(`${theme.bold("Budgets")} ${statusText}`);
+    const thresholdRows: (readonly string[])[] = [];
+    const categories = params.share.budgets.categories;
+    if (categories !== undefined) {
+      if (categories.performance !== undefined) thresholdRows.push(["category", "performance", `${categories.performance}`]);
+      if (categories.accessibility !== undefined) thresholdRows.push(["category", "accessibility", `${categories.accessibility}`]);
+      if (categories.bestPractices !== undefined) thresholdRows.push(["category", "bestPractices", `${categories.bestPractices}`]);
+      if (categories.seo !== undefined) thresholdRows.push(["category", "seo", `${categories.seo}`]);
+    }
+    const metrics = params.share.budgets.metrics;
+    if (metrics !== undefined) {
+      if (metrics.lcpMs !== undefined) thresholdRows.push(["metric", "lcpMs", `${metrics.lcpMs}ms`]);
+      if (metrics.fcpMs !== undefined) thresholdRows.push(["metric", "fcpMs", `${metrics.fcpMs}ms`]);
+      if (metrics.tbtMs !== undefined) thresholdRows.push(["metric", "tbtMs", `${metrics.tbtMs}ms`]);
+      if (metrics.cls !== undefined) thresholdRows.push(["metric", "cls", `${metrics.cls}`]);
+      if (metrics.inpMs !== undefined) thresholdRows.push(["metric", "inpMs", `${metrics.inpMs}ms`]);
+    }
+    if (thresholdRows.length > 0) {
+      lines.push(
+        renderTable({
+          headers: ["Type", "Id", "Limit"],
+          rows: thresholdRows,
+        }),
+      );
+    }
+    if (params.share.budgetViolations.length > 0) {
+      lines.push(theme.bold("Violations"));
+      params.share.budgetViolations.forEach((v) => {
+        const valueText: string = v.kind === "category" ? `${Math.round(v.value)}` : `${Math.round(v.value)}ms`;
+        const limitText: string = v.kind === "category" ? `${Math.round(v.limit)}` : `${Math.round(v.limit)}ms`;
+        lines.push(
+          `${v.pageLabel} ${v.path} [${colorDevice(v.device, theme)}] – ${v.kind} ${v.id}: ${valueText} vs limit ${limitText}`,
+        );
+      });
+    } else {
+      lines.push(theme.dim("No violations."));
+    }
+    divider();
+  }
 
   // Regressions
   lines.push(`${theme.bold("Regressions")} ${theme.dim("(top 10 by ΔP)")}`);
@@ -407,6 +666,26 @@ function buildLowestPerformancePanel(results: readonly PageDeviceSummary[], useC
   return renderPanel({ title: theme.bold("Lowest performance"), lines });
 }
 
+function buildBudgetsPanel(params: {
+  readonly budgets: ApexBudgets | undefined;
+  readonly violations: readonly BudgetViolation[];
+  readonly useColor: boolean;
+}): string | undefined {
+  if (params.budgets === undefined) {
+    return undefined;
+  }
+  const theme: UiTheme = new UiTheme({ noColor: !params.useColor });
+  if (params.violations.length === 0) {
+    return renderPanel({ title: theme.bold("Budgets"), lines: [theme.green("All budgets passed.")] });
+  }
+  const lines: string[] = params.violations.map((v) => {
+    const valueText: string = v.kind === "category" ? `${Math.round(v.value)}` : `${Math.round(v.value)}ms`;
+    const limitText: string = v.kind === "category" ? `${Math.round(v.limit)}` : `${Math.round(v.limit)}ms`;
+    return `${v.pageLabel} ${v.path} [${v.device}] – ${v.kind} ${v.id}: ${valueText} vs limit ${limitText}`;
+  });
+  return renderPanel({ title: theme.bold("Budgets"), lines });
+}
+
 const ANSI_RESET = "\u001B[0m" as const;
 const ANSI_RED = "\u001B[31m" as const;
 const ANSI_YELLOW = "\u001B[33m" as const;
@@ -455,6 +734,7 @@ async function confirmLargeRun(message: string): Promise<boolean> {
 function parseArgs(argv: readonly string[]): CliArgs {
   let configPath: string | undefined;
   let ci: boolean = false;
+  let failOnBudget: boolean = false;
   let colorMode: CliColorMode = "auto";
   let logLevelOverride: CliLogLevel | undefined;
   let deviceFilter: ApexDevice | undefined;
@@ -480,6 +760,11 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let overview = false;
   let overviewCombos: number | undefined;
   let regressionsOnly = false;
+  let changedOnly = false;
+  let rerunFailing = false;
+  let accessibilityPass = false;
+  let webhookUrl: string | undefined;
+  let webhookAlways = false;
   for (let i = 2; i < argv.length; i += 1) {
     const arg: string = argv[i];
     if ((arg === "--config" || arg === "-c") && i + 1 < argv.length) {
@@ -487,6 +772,8 @@ function parseArgs(argv: readonly string[]): CliArgs {
       i += 1;
     } else if (arg === "--ci") {
       ci = true;
+    } else if (arg === "--fail-on-budget") {
+      failOnBudget = true;
     } else if (arg === "--no-color") {
       colorMode = "never";
     } else if (arg === "--color") {
@@ -542,6 +829,17 @@ function parseArgs(argv: readonly string[]): CliArgs {
       plan = true;
     } else if (arg === "--regressions-only") {
       regressionsOnly = true;
+    } else if (arg === "--changed-only") {
+      changedOnly = true;
+    } else if (arg === "--rerun-failing") {
+      rerunFailing = true;
+    } else if (arg === "--accessibility-pass") {
+      accessibilityPass = true;
+    } else if (arg === "--webhook-url" && i + 1 < argv.length) {
+      webhookUrl = argv[i + 1];
+      i += 1;
+    } else if (arg === "--webhook-always") {
+      webhookAlways = true;
     } else if (arg === "--max-steps" && i + 1 < argv.length) {
       const value: number = parseInt(argv[i + 1], 10);
       if (Number.isNaN(value) || value <= 0) {
@@ -610,7 +908,41 @@ function parseArgs(argv: readonly string[]): CliArgs {
     throw new Error("Choose only one preset: --overview, --fast, --quick, or --accurate");
   }
   const finalConfigPath: string = configPath ?? "apex.config.json";
-  return { configPath: finalConfigPath, ci, colorMode, logLevelOverride, deviceFilter, throttlingMethodOverride, cpuSlowdownOverride, parallelOverride, auditTimeoutMsOverride, plan, yes, maxSteps, maxCombos, stable, openReport, warmUp, incremental, buildId, runsOverride, quick, accurate, jsonOutput, showParallel, fast, overview, overviewCombos, regressionsOnly };
+  return {
+    configPath: finalConfigPath,
+    ci,
+    failOnBudget,
+    colorMode,
+    logLevelOverride,
+    deviceFilter,
+    throttlingMethodOverride,
+    cpuSlowdownOverride,
+    parallelOverride,
+    auditTimeoutMsOverride,
+    plan,
+    yes,
+    maxSteps,
+    maxCombos,
+    stable,
+    openReport,
+    warmUp,
+    incremental,
+    buildId,
+    runsOverride,
+    quick,
+    accurate,
+    jsonOutput,
+    showParallel,
+    fast,
+    overview,
+    overviewCombos,
+    regressionsOnly,
+    changedOnly,
+    rerunFailing,
+    accessibilityPass,
+    webhookUrl,
+    webhookAlways,
+  };
 }
 
 function printPlan(params: {
@@ -916,7 +1248,7 @@ function buildChangesBox(previous: RunSummary, current: RunSummary, useColor: bo
  *
  * @param argv - The process arguments array.
  */
-export async function runAuditCli(argv: readonly string[]): Promise<void> {
+export async function runAuditCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   const args: CliArgs = parseArgs(argv);
   const startTimeMs: number = Date.now();
   const { configPath, config } = await loadConfig({ configPath: args.configPath });
@@ -953,7 +1285,7 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   }
   const effectiveRuns: number = 1;
   const onlyCategories: readonly ApexCategory[] | undefined = args.fast ? ["performance"] : undefined;
-  const effectiveConfig: ApexConfig = {
+  let effectiveConfig: ApexConfig = {
     ...config,
     buildId: effectiveBuildId,
     logLevel: effectiveLogLevel,
@@ -965,6 +1297,27 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
     incremental: finalIncremental,
     runs: effectiveRuns,
   };
+  if (args.changedOnly) {
+    const changedFiles: readonly string[] = await getChangedFiles();
+    const changedConfig: ApexConfig = filterConfigChanged(effectiveConfig, changedFiles);
+    if (changedConfig.pages.length === 0) {
+      // eslint-disable-next-line no-console
+      console.error("Changed-only mode: no pages matched git diff. Nothing to run.");
+      process.exitCode = 0;
+      return;
+    }
+    effectiveConfig = changedConfig;
+  }
+  if (args.rerunFailing) {
+    const rerunConfig: ApexConfig = filterConfigFailing(previousSummary, effectiveConfig);
+    if (rerunConfig.pages.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log("Rerun-failing mode: no failing combos found in previous summary. Nothing to run.");
+      process.exitCode = 0;
+      return;
+    }
+    effectiveConfig = rerunConfig;
+  }
   const filteredConfig: ApexConfig = filterConfigDevices(effectiveConfig, args.deviceFilter);
   if (filteredConfig.pages.length === 0) {
     // eslint-disable-next-line no-console
@@ -1030,14 +1383,65 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   }
   let summary: RunSummary;
   const abortController: AbortController = new AbortController();
+  if (options?.signal?.aborted === true) {
+    abortController.abort();
+  } else if (options?.signal) {
+    const externalSignal: AbortSignal = options.signal;
+    const onExternalAbort = (): void => abortController.abort();
+    externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    abortController.signal.addEventListener("abort", () => {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    });
+  }
   const onSigInt = (): void => {
     abortController.abort();
   };
   process.once("SIGINT", onSigInt);
+  let spinnerStarted = false;
+  let lastProgressLine: string | undefined;
+  const formatEtaText = (etaMs?: number): string => {
+    if (etaMs === undefined) {
+      return "";
+    }
+    const seconds: number = Math.max(0, Math.round(etaMs / 1000));
+    const minutes: number = Math.floor(seconds / 60);
+    const remainingSeconds: number = seconds % 60;
+    if (minutes === 0) {
+      return `${remainingSeconds}s`;
+    }
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+  const startAuditSpinner = (): void => {
+    if (spinnerStarted) {
+      return;
+    }
+    startSpinner("Running audit (Lighthouse)");
+    spinnerStarted = true;
+  };
+  if (!filteredConfig.warmUp) {
+    startAuditSpinner();
+  }
   try {
-    summary = await runAuditsForConfig({ config: overviewSample.config, configPath, showParallel: args.showParallel, onlyCategories, signal: abortController.signal });
+    summary = await runAuditsForConfig({
+      config: overviewSample.config,
+      configPath,
+      showParallel: args.showParallel,
+      onlyCategories,
+      signal: abortController.signal,
+      onAfterWarmUp: startAuditSpinner,
+      onProgress: ({ completed, total, path, device, etaMs }) => {
+        if (!process.stdout.isTTY) {
+          return;
+        }
+        const etaText: string = etaMs !== undefined ? ` | ETA ${formatEtaText(etaMs)}` : "";
+        const message: string = `* Running audit (Lighthouse) page ${completed}/${total} — ${path} [${device}]${etaText}`;
+        const padded: string = message.padEnd(lastProgressLine?.length ?? message.length, " ");
+        process.stdout.write(`\r${padded}`);
+        lastProgressLine = padded;
+        updateSpinnerMessage(`Running audit (Lighthouse) page ${completed}/${total}`);
+      },
+    });
   } catch (error: unknown) {
-    process.removeListener("SIGINT", onSigInt);
     const message: string = error instanceof Error ? error.message : "Unknown error";
     if (abortController.signal.aborted || message.includes("Aborted")) {
       // eslint-disable-next-line no-console
@@ -1050,6 +1454,11 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
     return;
   } finally {
     process.removeListener("SIGINT", onSigInt);
+    if (lastProgressLine !== undefined) {
+      process.stdout.write("\n");
+      lastProgressLine = undefined;
+    }
+    stopSpinner();
   }
   const outputDir: string = resolve(".apex-auditor");
   await mkdir(outputDir, { recursive: true });
@@ -1059,9 +1468,26 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   const html: string = buildHtmlReport(summary);
   const reportPath: string = resolve(outputDir, "report.html");
   await writeFile(reportPath, html, "utf8");
-  const shareable: ShareableExport = buildShareableExport({ configPath, previousSummary, current: summary });
+  const budgetViolations: readonly BudgetViolation[] =
+    effectiveConfig.budgets === undefined ? [] : collectBudgetViolations(summary.results, effectiveConfig.budgets);
+  const shareable: ShareableExport = buildShareableExport({
+    configPath,
+    previousSummary,
+    current: summary,
+    budgets: effectiveConfig.budgets,
+  });
   const exportPath: string = resolve(outputDir, "export.json");
   await writeFile(exportPath, JSON.stringify(shareable, null, 2), "utf8");
+  const accessibilityArtifacts: string = resolve(outputDir, "accessibility");
+  const accessibilitySummary: AxeSummary = await runAccessibilityAudit({
+    config: filteredConfig,
+    configPath,
+    artifactsDir: accessibilityArtifacts,
+  });
+  const accessibilitySummaryPath: string = resolve(outputDir, "accessibility-summary.json");
+  await writeFile(accessibilitySummaryPath, JSON.stringify(accessibilitySummary, null, 2), "utf8");
+  const accessibilityAggregated: AccessibilitySummary | undefined =
+    accessibilitySummary === undefined ? undefined : summariseAccessibility(accessibilitySummary);
   // Open HTML report in browser if requested
   if (args.openReport) {
     openInBrowser(reportPath);
@@ -1108,7 +1534,45 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   printSectionHeader("Top fixes", useColor);
   // eslint-disable-next-line no-console
   console.log(buildTopFixesPanel(summary.results, useColor));
-  printCiSummary(args, summary.results, effectiveConfig.budgets);
+  const budgetsPanel: string | undefined = buildBudgetsPanel({
+    budgets: effectiveConfig.budgets,
+    violations: budgetViolations,
+    useColor,
+  });
+  if (budgetsPanel !== undefined) {
+    printSectionHeader("Budgets", useColor);
+    // eslint-disable-next-line no-console
+    console.log(budgetsPanel);
+  }
+  printSectionHeader("Accessibility (fast pass)", useColor);
+  // eslint-disable-next-line no-console
+  console.log(buildAccessibilityPanel(summariseAccessibility(accessibilitySummary), useColor));
+  // eslint-disable-next-line no-console
+  console.log(buildAccessibilityIssuesPanel(accessibilitySummary.results, useColor));
+  if (args.webhookUrl) {
+    const regressions: readonly RegressionLine[] = collectRegressions(previousSummary, summary);
+    if (args.webhookAlways || shouldSendWebhook(regressions, budgetViolations)) {
+      const payload: WebhookPayload = buildWebhookPayload({
+        current: summary,
+        previous: previousSummary,
+        budgetViolations,
+        accessibility: accessibilityAggregated,
+        reportPath,
+        exportPath,
+        accessibilityPath: accessibilitySummaryPath,
+      });
+      try {
+        await postJsonWebhook({ url: args.webhookUrl, payload });
+        // eslint-disable-next-line no-console
+        console.log(`Sent webhook to ${args.webhookUrl}`);
+      } catch (error: unknown) {
+        const message: string = error instanceof Error ? error.message : String(error);
+        // eslint-disable-next-line no-console
+        console.error(`Failed to send webhook: ${message}`);
+      }
+    }
+  }
+  printCiSummary({ isCi: args.ci, failOnBudget: args.failOnBudget, violations: budgetViolations });
   printSectionHeader("Lowest performance", useColor);
   // eslint-disable-next-line no-console
   console.log(buildLowestPerformancePanel(summary.results, useColor));
@@ -1130,6 +1594,19 @@ export async function runAuditCli(argv: readonly string[]): Promise<void> {
   );
 }
 
+async function getChangedFiles(): Promise<readonly string[]> {
+  try {
+    const diffOutput: string = await runCommand("git diff --name-only", process.cwd());
+    const files: readonly string[] = diffOutput
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return files;
+  } catch {
+    return [];
+  }
+}
+
 function filterConfigDevices(config: ApexConfig, deviceFilter: ApexDevice | undefined): ApexConfig {
   if (deviceFilter === undefined) {
     return config;
@@ -1141,6 +1618,43 @@ function filterConfigDevices(config: ApexConfig, deviceFilter: ApexDevice | unde
     ...config,
     pages: filteredPages,
   };
+}
+
+function filterConfigChanged(config: ApexConfig, changedFiles: readonly string[]): ApexConfig {
+  if (changedFiles.length === 0) {
+    return config;
+  }
+  const pageMatches = (pagePath: string): boolean => {
+    const segment: string = pagePath.replace(/^\//, "");
+    return changedFiles.some((file) => file.includes(segment));
+  };
+  const pages: ApexPageConfig[] = config.pages.filter((page) => pageMatches(page.path));
+  return { ...config, pages };
+}
+
+function filterConfigFailing(previous: RunSummary | undefined, config: ApexConfig): ApexConfig {
+  if (previous === undefined) {
+    return config;
+  }
+  const failing = new Set<string>();
+  for (const result of previous.results) {
+    const runtimeFailed: boolean = Boolean(result.runtimeErrorMessage);
+    const perfScore: number | undefined = result.scores.performance;
+    const failedScore: boolean = typeof perfScore === "number" && perfScore < 90;
+    if (runtimeFailed || failedScore) {
+      failing.add(`${result.label}:::${result.path}:::${result.device}`);
+    }
+  }
+  const pages: ApexPageConfig[] = config.pages.flatMap((page) => {
+    const devices: readonly ApexDevice[] = page.devices.filter((device) =>
+      failing.has(`${page.label}:::${page.path}:::${device}`),
+    );
+    if (devices.length === 0) {
+      return [];
+    }
+    return [{ ...page, devices }];
+  });
+  return { ...config, pages };
 }
 
 function filterPageDevices(page: ApexPageConfig, deviceFilter: ApexDevice): ApexPageConfig | undefined {
@@ -1807,24 +2321,24 @@ interface BudgetViolation {
   readonly limit: number;
 }
 
-function printCiSummary(args: CliArgs, results: readonly PageDeviceSummary[], budgets: ApexBudgets | undefined): void {
-  if (!args.ci) {
+function printCiSummary(params: {
+  readonly isCi: boolean;
+  readonly failOnBudget: boolean;
+  readonly violations: readonly BudgetViolation[];
+}): void {
+  if (!params.isCi && !params.failOnBudget) {
     return;
   }
-  if (!budgets) {
-    // eslint-disable-next-line no-console
-    console.log("\nCI mode: no budgets configured. Skipping threshold checks.");
-    return;
-  }
-  const violations: BudgetViolation[] = collectBudgetViolations(results, budgets);
-  if (violations.length === 0) {
-    // eslint-disable-next-line no-console
-    console.log("\nCI budgets PASSED.");
+  if (params.violations.length === 0) {
+    if (params.isCi) {
+      // eslint-disable-next-line no-console
+      console.log("\nCI budgets PASSED.");
+    }
     return;
   }
   // eslint-disable-next-line no-console
-  console.log(`\nCI budgets FAILED (${violations.length} violations):`);
-  for (const violation of violations) {
+  console.log(`\nBudgets FAILED (${params.violations.length} violations):`);
+  for (const violation of params.violations) {
     // eslint-disable-next-line no-console
     console.log(
       `- ${violation.pageLabel} ${violation.path} [${violation.device}] – ${violation.kind} ${violation.id}: ${violation.value} vs limit ${violation.limit}`,

@@ -44,15 +44,27 @@ type NavigationTiming = {
   readonly loadEventEnd?: number;
 };
 
-type MeasuredVitals = {
-  readonly lcpMs?: number;
-  readonly cls?: number;
-  readonly inpMs?: number;
-};
-
 type MeasureEvaluateResult = {
   readonly navigation?: NavigationTiming;
-  readonly vitals?: MeasuredVitals;
+  readonly vitals?: {
+    readonly lcpMs?: number;
+    readonly cls?: number;
+    readonly inpMs?: number;
+  };
+  readonly longTasks?: {
+    readonly count?: number;
+    readonly totalMs?: number;
+    readonly maxMs?: number;
+  };
+  readonly scriptingDurationMs?: number;
+  readonly network?: {
+    readonly totalRequests?: number;
+    readonly totalBytes?: number;
+    readonly thirdPartyRequests?: number;
+    readonly thirdPartyBytes?: number;
+    readonly cacheHitRatio?: number;
+    readonly lateScriptRequests?: number;
+  };
 };
 
 type MeasureArtifacts = {
@@ -74,6 +86,20 @@ type MeasureResult = {
     readonly lcpMs?: number;
     readonly cls?: number;
     readonly inpMs?: number;
+  };
+  readonly longTasks: {
+    readonly count: number;
+    readonly totalMs: number;
+    readonly maxMs: number;
+  };
+  readonly scriptingDurationMs?: number;
+  readonly network: {
+    readonly totalRequests: number;
+    readonly totalBytes: number;
+    readonly thirdPartyRequests: number;
+    readonly thirdPartyBytes: number;
+    readonly cacheHitRatio: number;
+    readonly lateScriptRequests: number;
   };
   readonly artifacts: MeasureArtifacts;
   readonly runtimeErrorMessage?: string;
@@ -279,20 +305,52 @@ async function captureScreenshot(client: CdpClient, task: PageDeviceTask, sessio
   }
 }
 
-function parseMeasureResult(valueUnknown: unknown): { readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number }; readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number } } {
-  const value: MeasureEvaluateResult = valueUnknown && typeof valueUnknown === "object" ? (valueUnknown as MeasureEvaluateResult) : {};
+function parseMeasureResult(valueUnknown: unknown): {
+  readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number };
+  readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number };
+  readonly longTasks: { readonly count: number; readonly totalMs: number; readonly maxMs: number };
+  readonly scriptingDurationMs?: number;
+  readonly network: {
+    readonly totalRequests: number;
+    readonly totalBytes: number;
+    readonly thirdPartyRequests: number;
+    readonly thirdPartyBytes: number;
+    readonly cacheHitRatio: number;
+    readonly lateScriptRequests: number;
+  };
+} {
+  const value: MeasureEvaluateResult =
+    valueUnknown && typeof valueUnknown === "object" ? (valueUnknown as MeasureEvaluateResult) : {};
   const ttfbMs: number | undefined = typeof value.navigation?.responseStart === "number" ? value.navigation.responseStart : undefined;
-  const domContentLoadedMs: number | undefined = typeof value.navigation?.domContentLoadedEventEnd === "number" ? value.navigation.domContentLoadedEventEnd : undefined;
+  const domContentLoadedMs: number | undefined =
+    typeof value.navigation?.domContentLoadedEventEnd === "number" ? value.navigation.domContentLoadedEventEnd : undefined;
   const loadMs: number | undefined = typeof value.navigation?.loadEventEnd === "number" ? value.navigation.loadEventEnd : undefined;
   const lcpMs: number | undefined = typeof value.vitals?.lcpMs === "number" ? value.vitals.lcpMs : undefined;
   const cls: number | undefined = typeof value.vitals?.cls === "number" ? value.vitals.cls : undefined;
   const inpMs: number | undefined = typeof value.vitals?.inpMs === "number" ? value.vitals.inpMs : undefined;
-  return { timings: { ttfbMs, domContentLoadedMs, loadMs }, vitals: { lcpMs, cls, inpMs } };
+  const longTasks = {
+    count: typeof value.longTasks?.count === "number" ? value.longTasks.count : 0,
+    totalMs: typeof value.longTasks?.totalMs === "number" ? value.longTasks.totalMs : 0,
+    maxMs: typeof value.longTasks?.maxMs === "number" ? value.longTasks.maxMs : 0,
+  };
+  const scriptingDurationMs: number | undefined = typeof value.scriptingDurationMs === "number" ? value.scriptingDurationMs : longTasks.totalMs;
+  const network = {
+    totalRequests: typeof value.network?.totalRequests === "number" ? value.network.totalRequests : 0,
+    totalBytes: typeof value.network?.totalBytes === "number" ? value.network.totalBytes : 0,
+    thirdPartyRequests: typeof value.network?.thirdPartyRequests === "number" ? value.network.thirdPartyRequests : 0,
+    thirdPartyBytes: typeof value.network?.thirdPartyBytes === "number" ? value.network.thirdPartyBytes : 0,
+    cacheHitRatio: typeof value.network?.cacheHitRatio === "number" ? value.network.cacheHitRatio : 0,
+    lateScriptRequests: typeof value.network?.lateScriptRequests === "number" ? value.network.lateScriptRequests : 0,
+  };
+  return { timings: { ttfbMs, domContentLoadedMs, loadMs }, vitals: { lcpMs, cls, inpMs }, longTasks, scriptingDurationMs, network };
 }
 
 async function createTargetSession(client: CdpClient): Promise<TargetSession> {
   const created: TargetInfo = await client.send<TargetInfo>("Target.createTarget", { url: "about:blank" });
-  const attached: AttachToTargetResult = await client.send<AttachToTargetResult>("Target.attachToTarget", { targetId: created.targetId, flatten: true });
+  const attached: AttachToTargetResult = await client.send<AttachToTargetResult>(
+    "Target.attachToTarget",
+    { targetId: created.targetId, flatten: true },
+  );
   return { targetId: created.targetId, sessionId: attached.sessionId };
 }
 
@@ -316,13 +374,68 @@ async function navigateAndAwaitLoad(client: CdpClient, sessionId: string, url: s
   await client.waitForEventForSession("Page.loadEventFired", sessionId, timeoutMs);
 }
 
-async function evaluateMetrics(client: CdpClient, sessionId: string): Promise<{ readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number }; readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number } }> {
+async function evaluateMetrics(client: CdpClient, sessionId: string): Promise<{
+  readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number };
+  readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number };
+  readonly longTasks: { readonly count: number; readonly totalMs: number; readonly maxMs: number };
+  readonly scriptingDurationMs?: number;
+  readonly network: {
+    readonly totalRequests: number;
+    readonly totalBytes: number;
+    readonly thirdPartyRequests: number;
+    readonly thirdPartyBytes: number;
+    readonly cacheHitRatio: number;
+    readonly lateScriptRequests: number;
+  };
+}> {
   const evaluateResult = await client.send<{ readonly result?: unknown }>(
     "Runtime.evaluate",
     {
       expression: `(() => {
   const nav = performance.getEntriesByType('navigation')[0];
   const state = (globalThis).__apexMeasure;
+  const resources = performance.getEntriesByType('resource');
+  const longTasks = performance.getEntriesByType('longtask');
+  let longTaskCount = 0;
+  let longTaskTotal = 0;
+  let longTaskMax = 0;
+  for (const lt of longTasks) {
+    const duration = lt.duration || 0;
+    longTaskCount += 1;
+    longTaskTotal += duration;
+    if (duration > longTaskMax) {
+      longTaskMax = duration;
+    }
+  }
+  let totalRequests = 0;
+  let totalBytes = 0;
+  let thirdPartyRequests = 0;
+  let thirdPartyBytes = 0;
+  let cacheHits = 0;
+  let lateScriptRequests = 0;
+  const pageHost = location.host;
+  const loadEnd = nav ? nav.loadEventEnd : 0;
+  for (const res of resources) {
+    totalRequests += 1;
+    const transfer = typeof res.transferSize === 'number' ? res.transferSize : 0;
+    const encoded = typeof res.encodedBodySize === 'number' ? res.encodedBodySize : 0;
+    totalBytes += transfer;
+    try {
+      const url = new URL(res.name, location.href);
+      const isThirdParty = url.host !== pageHost;
+      if (isThirdParty) {
+        thirdPartyRequests += 1;
+        thirdPartyBytes += transfer;
+      }
+    } catch {}
+    if ((transfer === 0 && encoded > 0) || (encoded > 0 && transfer < encoded)) {
+      cacheHits += 1;
+    }
+    if (res.initiatorType === 'script' && loadEnd && res.startTime >= loadEnd) {
+      lateScriptRequests += 1;
+    }
+  }
+  const cacheHitRatio = totalRequests > 0 ? cacheHits / totalRequests : 0;
   return {
     navigation: nav ? {
       responseStart: nav.responseStart,
@@ -334,6 +447,20 @@ async function evaluateMetrics(client: CdpClient, sessionId: string): Promise<{ 
       cls: state.cls,
       inpMs: state.inp,
     } : undefined,
+    longTasks: {
+      count: longTaskCount,
+      totalMs: longTaskTotal,
+      maxMs: longTaskMax,
+    },
+    scriptingDurationMs: longTaskTotal,
+    network: {
+      totalRequests,
+      totalBytes,
+      thirdPartyRequests,
+      thirdPartyBytes,
+      cacheHitRatio,
+      lateScriptRequests,
+    },
   };
 })()`,
     },
@@ -349,7 +476,31 @@ async function detachAndClose(client: CdpClient, context: TargetSession, stopLog
   await client.send("Target.detachFromTarget", { sessionId: context.sessionId });
 }
 
-async function collectMetrics(params: { readonly client: CdpClient; readonly task: PageDeviceTask; readonly sessionId: string; readonly timeoutMs: number; readonly artifactsDir: string; readonly consoleErrors: string[] }): Promise<{ readonly parsed: { readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number }; readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number } }; readonly screenshotPath?: string; readonly stopLogging: () => void }> {
+async function collectMetrics(params: {
+  readonly client: CdpClient;
+  readonly task: PageDeviceTask;
+  readonly sessionId: string;
+  readonly timeoutMs: number;
+  readonly artifactsDir: string;
+  readonly consoleErrors: string[];
+}): Promise<{
+  readonly parsed: {
+    readonly timings: { readonly ttfbMs?: number; readonly domContentLoadedMs?: number; readonly loadMs?: number };
+    readonly vitals: { readonly lcpMs?: number; readonly cls?: number; readonly inpMs?: number };
+    readonly longTasks: { readonly count: number; readonly totalMs: number; readonly maxMs: number };
+    readonly scriptingDurationMs?: number;
+    readonly network: {
+      readonly totalRequests: number;
+      readonly totalBytes: number;
+      readonly thirdPartyRequests: number;
+      readonly thirdPartyBytes: number;
+      readonly cacheHitRatio: number;
+      readonly lateScriptRequests: number;
+    };
+  };
+  readonly screenshotPath?: string;
+  readonly stopLogging: () => void;
+}> {
   const { client, task, sessionId, timeoutMs, artifactsDir, consoleErrors } = params;
   const stopLogging = recordLogEvents(client, sessionId, consoleErrors);
   await applyDeviceEmulation(client, task.device, sessionId);
@@ -385,6 +536,9 @@ async function runSingleMeasure(params: {
       device: task.device,
       timings: parsed.timings,
       vitals: parsed.vitals,
+      longTasks: parsed.longTasks,
+      scriptingDurationMs: parsed.scriptingDurationMs,
+      network: parsed.network,
       artifacts: { screenshotPath, consoleErrors },
     };
   } catch (error: unknown) {
@@ -396,6 +550,16 @@ async function runSingleMeasure(params: {
       device: task.device,
       timings: {},
       vitals: {},
+      longTasks: { count: 0, totalMs: 0, maxMs: 0 },
+      scriptingDurationMs: 0,
+      network: {
+        totalRequests: 0,
+        totalBytes: 0,
+        thirdPartyRequests: 0,
+        thirdPartyBytes: 0,
+        cacheHitRatio: 0,
+        lateScriptRequests: 0,
+      },
       artifacts: { screenshotPath, consoleErrors },
       runtimeErrorMessage: message,
     };

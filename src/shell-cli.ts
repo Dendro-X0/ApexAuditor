@@ -8,6 +8,7 @@ import { runMeasureCli } from "./measure-cli.js";
 import { runWizardCli } from "./wizard-cli.js";
 import { pathExists } from "./fs-utils.js";
 import { renderPanel } from "./ui/render-panel.js";
+import { startSpinner, stopSpinner } from "./spinner.js";
 import { UiTheme } from "./ui/ui-theme.js";
 
 type PresetId = "default" | "overview" | "quick" | "accurate" | "fast";
@@ -355,9 +356,12 @@ function printHomeScreen(params: { readonly version: string; readonly session: S
   const lines: string[] = [];
   lines.push(theme.dim("Performance + metrics assistant (measure-first, Lighthouse optional)"));
   lines.push("");
-  lines.push(theme.bold("Common commands"));
+  lines.push(theme.bold("Audit commands"));
   lines.push(`${theme.cyan(padCmd("measure"))}Fast batch metrics (LCP/CLS/INP + screenshot + console errors)`);
   lines.push(`${theme.cyan(padCmd("audit"))}Deep Lighthouse audit (slower)`);
+  lines.push("");
+  lines.push(theme.bold("Common commands"));
+  lines.push(`${theme.cyan(padCmd("init"))}Launch config wizard to create/edit apex.config.json`);
   lines.push(`${theme.cyan(padCmd("config <path>"))}Change config file (current: ${session.configPath})`);
   lines.push(`${theme.cyan(padCmd("help"))}Show all commands`);
   lines.push("");
@@ -438,14 +442,66 @@ async function runAudit(projectRoot: string, session: ShellSessionState, passthr
 
 async function runMeasure(session: ShellSessionState, passthroughArgs: readonly string[]): Promise<void> {
   const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...passthroughArgs];
-  // eslint-disable-next-line no-console
-  console.log("Starting measure (fast metrics). Tip: use --desktop-only/--mobile-only and --parallel to tune speed.");
-  await runMeasureCli(argv);
+  startSpinner("Running measure (fast metrics)");
+  try {
+    // eslint-disable-next-line no-console
+    console.log("Starting measure (fast metrics). Tip: use --desktop-only/--mobile-only and --parallel to tune speed.");
+    await runMeasureCli(argv);
+  } finally {
+    stopSpinner();
+  }
+}
+
+async function runWithEscAbort<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T | "aborted"> {
+  const controller: AbortController = new AbortController();
+  const input = process.stdin;
+  const handleKeypress = (buffer: Buffer): void => {
+    if (buffer.length === 1 && buffer[0] === 0x1b) {
+      controller.abort();
+    }
+  };
+  const previousRaw: boolean | undefined = input.isTTY ? input.isRaw : undefined;
+  if (input.isTTY) {
+    input.setRawMode(true);
+  }
+  input.on("data", handleKeypress);
+  try {
+    const result = await task(controller.signal);
+    if (controller.signal.aborted) {
+      return "aborted";
+    }
+    return result;
+  } finally {
+    input.off("data", handleKeypress);
+    if (input.isTTY && previousRaw !== undefined) {
+      input.setRawMode(previousRaw);
+    }
+  }
 }
 
 async function runAuditFromShell(projectRoot: string, session: ShellSessionState, args: readonly string[]): Promise<ShellSessionState> {
+  const escResult = await runWithEscAbort(async (signal) => {
+    await runAuditCli(buildAuditArgv(session, args), { signal });
+  });
+  if (escResult === "aborted") {
+    // eslint-disable-next-line no-console
+    console.log("Audit cancelled via Esc. Back to shell.");
+    process.exitCode = 0;
+    return session;
+  }
   try {
-    await runAudit(projectRoot, session, args);
+    if (process.exitCode === 130) {
+      process.exitCode = 0;
+      // eslint-disable-next-line no-console
+      console.log("Audit cancelled. Back to shell.");
+      return session;
+    }
+    const reportPath: string = resolve(projectRoot, SESSION_DIR_NAME, "report.html");
+    // eslint-disable-next-line no-console
+    console.log(`Tip: type ${theme.cyan("open")} to view the latest HTML report.`);
+    const updated: ShellSessionState = { ...session, lastReportPath: reportPath };
+    await saveSession(projectRoot, updated);
+    return updated;
   } catch (error: unknown) {
     const message: string = error instanceof Error ? error.message : String(error);
     if (message.includes("ENOENT") && message.includes(session.configPath)) {
@@ -457,16 +513,6 @@ async function runAuditFromShell(projectRoot: string, session: ShellSessionState
     }
     throw error;
   }
-  if (process.exitCode === 130) {
-    process.exitCode = 0;
-    // eslint-disable-next-line no-console
-    console.log("Audit cancelled. Back to shell.");
-    return session;
-  }
-  const reportPath: string = resolve(projectRoot, SESSION_DIR_NAME, "report.html");
-  const updated: ShellSessionState = { ...session, lastReportPath: reportPath };
-  await saveSession(projectRoot, updated);
-  return updated;
 }
 
 async function handleShellCommand(projectRoot: string, session: ShellSessionState, command: ParsedShellCommand): Promise<{ readonly session: ShellSessionState; readonly shouldExit: boolean }> {
