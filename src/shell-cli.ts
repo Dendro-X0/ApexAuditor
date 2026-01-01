@@ -855,6 +855,10 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
   const projectRoot: string = process.cwd();
   let session: ShellSessionState = await loadSession(projectRoot);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, completer: createCompleter() });
+  let rlClosed: boolean = false;
+  rl.on("close", () => {
+    rlClosed = true;
+  });
   const onSigint = (): void => {
     rl.close();
   };
@@ -884,7 +888,7 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
       await runWizardCli(["node", "apex-auditor"]);
     } finally {
       rl.on("SIGINT", onSigint);
-      if (rl.closed) {
+      if (rlClosed) {
         return;
       }
       if (typeof onLine === "function") {
