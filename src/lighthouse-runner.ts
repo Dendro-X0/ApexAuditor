@@ -204,6 +204,22 @@ async function runParallelInProcesses(
   for (const worker of workers) {
     attachListeners(worker.child);
   }
+  if (signal) {
+    const onAbort = (): void => {
+      for (const worker of workers) {
+        try {
+          worker.child.kill();
+        } catch {
+          continue;
+        }
+      }
+    };
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
   let consecutiveRetries = 0;
   const runOnWorker = async (workerIndex: number, taskIndex: number): Promise<void> => {
     const worker = workers[workerIndex];
@@ -468,7 +484,7 @@ async function createChromeSession(chromePort?: number): Promise<ChromeSession> 
   };
 }
 
-async function ensureUrlReachable(url: string): Promise<void> {
+async function ensureUrlReachable(url: string, signal?: AbortSignal): Promise<void> {
   const parsed = new URL(url);
   const client = parsed.protocol === "https:" ? httpsRequest : httpRequest;
   await new Promise<void>((resolve, reject) => {
@@ -489,6 +505,17 @@ async function ensureUrlReachable(url: string): Promise<void> {
         }
       },
     );
+    const abortListener = (): void => {
+      request.destroy(new Error("Aborted"));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        abortListener();
+      } else {
+        signal.addEventListener("abort", abortListener, { once: true });
+        request.on("close", () => signal.removeEventListener("abort", abortListener));
+      }
+    }
     request.on("error", (error: Error) => {
       reject(error);
     });
@@ -500,11 +527,14 @@ async function ensureUrlReachable(url: string): Promise<void> {
   });
 }
 
-async function performWarmUp(config: ApexConfig): Promise<void> {
+async function performWarmUp(config: ApexConfig, signal?: AbortSignal): Promise<void> {
   // eslint-disable-next-line no-console
   console.log("Performing warm-up requests...");
   const uniqueUrls: Set<string> = new Set();
   for (const page of config.pages) {
+    if (signal?.aborted) {
+      throw new Error("Aborted");
+    }
     const url: string = buildUrl({ baseUrl: config.baseUrl, path: page.path, query: config.query });
     uniqueUrls.add(url);
   }
@@ -513,11 +543,14 @@ async function performWarmUp(config: ApexConfig): Promise<void> {
   const warmUpNextIndex = { value: 0 };
   const warmWorker = async (): Promise<void> => {
     while (warmUpNextIndex.value < urls.length) {
+      if (signal?.aborted) {
+        throw new Error("Aborted");
+      }
       const index: number = warmUpNextIndex.value;
       warmUpNextIndex.value += 1;
       const url: string = urls[index];
       try {
-        await fetchUrl(url);
+        await fetchUrl(url, signal);
       } catch {
         // Ignore warm-up errors, the actual audit will catch real issues
       }
@@ -528,7 +561,7 @@ async function performWarmUp(config: ApexConfig): Promise<void> {
   console.log(`Warm-up complete (${uniqueUrls.size} pages).`);
 }
 
-async function fetchUrl(url: string): Promise<void> {
+async function fetchUrl(url: string, signal?: AbortSignal): Promise<void> {
   const parsed = new URL(url);
   const client = parsed.protocol === "https:" ? httpsRequest : httpRequest;
   await new Promise<void>((resolve, reject) => {
@@ -544,6 +577,17 @@ async function fetchUrl(url: string): Promise<void> {
         resolve();
       },
     );
+    const abortListener = (): void => {
+      request.destroy(new Error("Aborted"));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        abortListener();
+      } else {
+        signal.addEventListener("abort", abortListener, { once: true });
+        request.on("close", () => signal.removeEventListener("abort", abortListener));
+      }
+    }
     request.on("error", reject);
     request.end();
   });
@@ -575,10 +619,13 @@ export async function runAuditsForConfig({
   }
   const firstPage = config.pages[0];
   const healthCheckUrl: string = buildUrl({ baseUrl: config.baseUrl, path: firstPage.path, query: config.query });
-  await ensureUrlReachable(healthCheckUrl);
+  if (signal?.aborted) {
+    throw new Error("Aborted");
+  }
+  await ensureUrlReachable(healthCheckUrl, signal);
   // Perform warm-up requests if enabled
   if (config.warmUp) {
-    await performWarmUp(config);
+    await performWarmUp(config, signal);
   }
   if (typeof onAfterWarmUp === "function") {
     onAfterWarmUp();

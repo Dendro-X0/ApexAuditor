@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.5 - 2026-01-01
+
+### Added
+- Init wizard: detects project stack from `package.json` (Next.js, Nuxt, Remix/React Router, SvelteKit, SPA) and offers to use it.
+- Init wizard: monorepo support by scanning `apps/*` and `packages/*` and prompting which app/package to configure.
+- Nuxt route detection: filesystem route discovery from `pages/` with support for dynamic segments (Nuxt 2 `_id`, Nuxt 3 `[id]`).
+- Hybrid route discovery: filesystem routes first, then top-up from `robots.txt`/`sitemap.xml` (default cap: 50).
+
+### Changed
+- Init wizard: confirmation prompts default to **Yes** on Enter (e.g. overwrite).
+- Init wizard: Next.js options are now a single "Next.js" choice.
+
+### Fixed
+- Shell stability: cancelling the init wizard no longer crashes with `ERR_USE_AFTER_CLOSE`.
+
 ## 0.3.4 - 2026-01-01
 
 ### Added
@@ -7,6 +22,9 @@
 - New audit commands:
   - `bundle`: scans build outputs and writes `.apex-auditor/bundle-audit.json`.
   - `health`: fast HTTP checks for configured routes and writes `.apex-auditor/health.json`.
+  - `links`: broken links audit (sitemap + HTML link extraction) and writes `.apex-auditor/links.json`.
+  - `headers`: security headers audit and writes `.apex-auditor/headers.json`.
+  - `console`: console errors + runtime exceptions audit and writes `.apex-auditor/console.json`.
 
 ### Changed
 - Measure screenshots are now opt-in via `--screenshots` (default off) to keep runs fast.

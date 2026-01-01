@@ -62,27 +62,32 @@ async function walkFiles(params: {
   readonly root: string;
   readonly base: string;
   readonly extensions: readonly string[];
+  readonly signal?: AbortSignal;
 }): Promise<readonly BundleFileEntry[]> {
   const entries: BundleFileEntry[] = [];
   const visitDir = async (dir: string): Promise<void> => {
+    if (params.signal?.aborted) {
+      throw new Error("Aborted");
+    }
     const children: readonly string[] = await readdir(dir);
-    await Promise.all(
-      children.map(async (name) => {
-        const absolute: string = join(dir, name);
-        const s = await stat(absolute);
-        if (s.isDirectory()) {
-          await visitDir(absolute);
-          return;
-        }
-        const matchedExt: string | undefined = params.extensions.find((ext) => name.endsWith(ext));
-        if (!matchedExt) {
-          return;
-        }
-        const kind: BundleFileKind = matchedExt === ".css" ? "css" : "js";
-        const rel: string = relative(params.base, absolute).replace(/\\/g, "/");
-        entries.push({ kind, relativePath: rel, bytes: s.size });
-      }),
-    );
+    for (const name of children) {
+      if (params.signal?.aborted) {
+        throw new Error("Aborted");
+      }
+      const absolute: string = join(dir, name);
+      const s = await stat(absolute);
+      if (s.isDirectory()) {
+        await visitDir(absolute);
+        continue;
+      }
+      const matchedExt: string | undefined = params.extensions.find((ext) => name.endsWith(ext));
+      if (!matchedExt) {
+        continue;
+      }
+      const kind: BundleFileKind = matchedExt === ".css" ? "css" : "js";
+      const rel: string = relative(params.base, absolute).replace(/\\/g, "/");
+      entries.push({ kind, relativePath: rel, bytes: s.size });
+    }
   };
 
   await visitDir(params.root);
@@ -125,7 +130,7 @@ function buildTopFilesTable(entries: readonly BundleFileEntry[], top: number): s
   return renderTable({ headers: ["Type", "Size", "File"], rows });
 }
 
-export async function runBundleCli(argv: readonly string[]): Promise<void> {
+export async function runBundleCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   stopSpinner();
   const args: BundleArgs = parseArgs(argv);
   const projectRoot: string = resolve(args.projectRoot);
@@ -143,10 +148,14 @@ export async function runBundleCli(argv: readonly string[]): Promise<void> {
 
   const allEntries: BundleFileEntry[] = [];
   for (const target of scanTargets) {
+    if (options?.signal?.aborted) {
+      throw new Error("Aborted");
+    }
     const entries: readonly BundleFileEntry[] = await walkFiles({
       root: target,
       base: projectRoot,
       extensions: [".js", ".css"],
+      signal: options?.signal,
     });
     allEntries.push(...entries);
   }

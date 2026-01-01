@@ -1,12 +1,23 @@
 {
   "baseUrl": "http://localhost:3000",
-  "query": "?lhci=1",
+  "query": "",
   "runs": 1,
   "pages": [
-    { "path": "/", "label": "home", "devices": ["mobile", "desktop"] },
-    { "path": "/blog", "label": "blog", "devices": ["mobile", "desktop"] },
-    { "path": "/contact", "label": "contact", "devices": ["mobile"] },
-    { "path": "/search", "label": "search", "devices": ["mobile"] },
-    { "path": "/auth/login", "label": "auth-login", "devices": ["mobile"] }
+    {
+      "path": "/",
+      "label": "/",
+      "devices": [
+        "mobile",
+        "desktop"
+      ]
+    },
+    {
+      "path": "/",
+      "label": "/",
+      "devices": [
+        "mobile",
+        "desktop"
+      ]
+    }
   ]
 }

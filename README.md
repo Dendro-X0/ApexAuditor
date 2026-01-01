@@ -16,12 +16,20 @@ From your web project root:
 pnpm dlx apex-auditor@latest
 ```
 
+Notes:
+
+- `init` can auto-detect your stack from `package.json` (Next.js, Nuxt, Remix/React Router, SvelteKit, SPA).
+- In monorepos, `init` can prompt you to pick an app/package under `apps/` or `packages/`.
+
 Inside the interactive shell:
 
 - **measure**
 - **audit**
 - **bundle** (scan build output sizes; writes `.apex-auditor/bundle-audit.json`)
 - **health** (HTTP status/latency checks; writes `.apex-auditor/health.json`)
+- **links** (broken links crawl; writes `.apex-auditor/links.json`)
+- **headers** (security headers check; writes `.apex-auditor/headers.json`)
+- **console** (console errors + runtime exceptions; writes `.apex-auditor/console.json`)
 - **open** (open the latest HTML report)
 - **init** (launch config wizard)
 - **config <path>** (switch config file)
@@ -74,6 +82,18 @@ Notes:
 ### `health` outputs
 
 - `health.json`
+
+### `links` outputs
+
+- `links.json`
+
+### `headers` outputs
+
+- `headers.json`
+
+### `console` outputs
+
+- `console.json`
 
 ## Configuration
 

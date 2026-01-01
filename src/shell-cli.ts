@@ -6,12 +6,17 @@ import readline from "node:readline";
 import type { ApexDevice, PageDeviceSummary, RunSummary } from "./types.js";
 import { runAuditCli } from "./cli.js";
 import { runBundleCli } from "./bundle-cli.js";
+import { runConsoleCli } from "./console-cli.js";
+import { runHeadersCli } from "./headers-cli.js";
 import { runHealthCli } from "./health-cli.js";
+import { runLinksCli } from "./links-cli.js";
 import { runMeasureCli } from "./measure-cli.js";
 import { runWizardCli } from "./wizard-cli.js";
+import { runCleanCli } from "./clean-cli.js";
 import { pathExists } from "./fs-utils.js";
 import { renderPanel } from "./ui/render-panel.js";
-import { startSpinner, stopSpinner } from "./spinner.js";
+import { renderTable } from "./ui/render-table.js";
+import { startSpinner, stopSpinner, updateSpinnerMessage } from "./spinner.js";
 import { UiTheme } from "./ui/ui-theme.js";
 
 type PresetId = "default" | "overview" | "quick" | "accurate" | "fast";
@@ -55,10 +60,10 @@ async function readJsonFile<T extends object>(absolutePath: string): Promise<T |
 
 async function runBundleFromShell(args: readonly string[]): Promise<void> {
   const argv: string[] = ["node", "apex-auditor", ...args];
-  const escResult = await runWithEscAbort(async (_signal) => {
+  const escResult = await runWithEscAbort(async (signal) => {
     startSpinner("Scanning bundles");
     try {
-      await runBundleCli(argv);
+      await runBundleCli(argv, { signal });
     } finally {
       stopSpinner();
     }
@@ -72,10 +77,10 @@ async function runBundleFromShell(args: readonly string[]): Promise<void> {
 
 async function runHealthFromShell(session: ShellSessionState, args: readonly string[]): Promise<void> {
   const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...args];
-  const escResult = await runWithEscAbort(async (_signal) => {
+  const escResult = await runWithEscAbort(async (signal) => {
     startSpinner("Running health checks");
     try {
-      await runHealthCli(argv);
+      await runHealthCli(argv, { signal });
     } finally {
       stopSpinner();
     }
@@ -83,6 +88,57 @@ async function runHealthFromShell(session: ShellSessionState, args: readonly str
   if (escResult === "aborted") {
     // eslint-disable-next-line no-console
     console.log("Health checks cancelled via Esc. Back to shell.");
+    process.exitCode = 0;
+  }
+}
+
+async function runLinksFromShell(session: ShellSessionState, args: readonly string[]): Promise<void> {
+  const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...args];
+  const escResult = await runWithEscAbort(async (signal) => {
+    startSpinner("Crawling links");
+    try {
+      await runLinksCli(argv, { signal });
+    } finally {
+      stopSpinner();
+    }
+  });
+  if (escResult === "aborted") {
+    // eslint-disable-next-line no-console
+    console.log("Links audit cancelled via Esc. Back to shell.");
+    process.exitCode = 0;
+  }
+}
+
+async function runHeadersFromShell(session: ShellSessionState, args: readonly string[]): Promise<void> {
+  const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...args];
+  const escResult = await runWithEscAbort(async (signal) => {
+    startSpinner("Checking security headers");
+    try {
+      await runHeadersCli(argv, { signal });
+    } finally {
+      stopSpinner();
+    }
+  });
+  if (escResult === "aborted") {
+    // eslint-disable-next-line no-console
+    console.log("Headers audit cancelled via Esc. Back to shell.");
+    process.exitCode = 0;
+  }
+}
+
+async function runConsoleAuditFromShell(session: ShellSessionState, args: readonly string[]): Promise<void> {
+  const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...args];
+  const escResult = await runWithEscAbort(async (signal) => {
+    startSpinner("Capturing console errors");
+    try {
+      await runConsoleCli(argv, { signal });
+    } finally {
+      stopSpinner();
+    }
+  });
+  if (escResult === "aborted") {
+    // eslint-disable-next-line no-console
+    console.log("Console audit cancelled via Esc. Back to shell.");
     process.exitCode = 0;
   }
 }
@@ -358,8 +414,12 @@ function printHelp(): void {
   lines.push(`${theme.cyan("audit")} Run Lighthouse audits using the current session settings`);
   lines.push(`${theme.cyan("bundle")} Bundle size audit for build outputs (.next/dist)`);
   lines.push(`${theme.cyan("health")} HTTP status/latency checks for configured routes`);
+  lines.push(`${theme.cyan("links")} Broken links audit (sitemap + HTML link extraction)`);
+  lines.push(`${theme.cyan("headers")} Security headers audit`);
+  lines.push(`${theme.cyan("console")} Console errors + runtime exceptions audit (headless Chrome)`);
   lines.push("");
   lines.push(theme.bold("Other commands"));
+  lines.push(`${theme.cyan("clean")} Remove ApexAuditor artifacts (reports/cache and optionally config)`);
   lines.push(`${theme.cyan("open")} Open the last HTML report (or .apex-auditor/report.html)`);
   lines.push(`${theme.cyan("diff")} Compare last run vs previous run (from this shell session)`);
   lines.push(`${theme.cyan("preset <id>")} Set preset: default|overview|quick|accurate|fast`);
@@ -402,6 +462,9 @@ function printHomeScreen(params: { readonly version: string; readonly session: S
   lines.push(`${theme.cyan(padCmd("audit"))}Deep Lighthouse audit (slower)`);
   lines.push(`${theme.cyan(padCmd("bundle"))}Bundle size audit (Next.js .next/ or dist/ build output)`);
   lines.push(`${theme.cyan(padCmd("health"))}HTTP health + latency checks for configured routes`);
+  lines.push(`${theme.cyan(padCmd("links"))}Broken links audit (sitemap + HTML link extraction)`);
+  lines.push(`${theme.cyan(padCmd("headers"))}Security headers audit`);
+  lines.push(`${theme.cyan(padCmd("console"))}Console errors + runtime exceptions audit (headless Chrome)`);
   lines.push("");
   lines.push(theme.bold("Common commands"));
   lines.push(`${theme.cyan(padCmd("init"))}Launch config wizard to create/edit apex.config.json`);
@@ -421,6 +484,10 @@ function createCompleter(): (line: string) => readonly [readonly string[], strin
     "measure",
     "bundle",
     "health",
+    "links",
+    "headers",
+    "console",
+    "clean",
     "open",
     "diff",
     "preset",
@@ -437,6 +504,22 @@ function createCompleter(): (line: string) => readonly [readonly string[], strin
   const measureFlags: readonly string[] = ["--desktop-only", "--mobile-only", "--parallel", "--timeout-ms", "--screenshots", "--json"] as const;
   const bundleFlags: readonly string[] = ["--project-root", "--root", "--top", "--json"] as const;
   const healthFlags: readonly string[] = ["--config", "-c", "--parallel", "--timeout-ms", "--json"] as const;
+  const linksFlags: readonly string[] = ["--config", "-c", "--sitemap", "--parallel", "--timeout-ms", "--max-urls", "--json"] as const;
+  const headersFlags: readonly string[] = ["--config", "-c", "--parallel", "--timeout-ms", "--json"] as const;
+  const consoleFlags: readonly string[] = ["--config", "-c", "--parallel", "--timeout-ms", "--max-events", "--json"] as const;
+  const cleanFlags: readonly string[] = [
+    "--project-root",
+    "--config-path",
+    "--config",
+    "--reports",
+    "--no-reports",
+    "--remove-config",
+    "--all",
+    "--dry-run",
+    "--yes",
+    "-y",
+    "--json",
+  ] as const;
 
   const filterStartsWith = (candidates: readonly string[], fragment: string): readonly string[] => {
     const hits: readonly string[] = candidates.filter((c) => c.startsWith(fragment));
@@ -467,6 +550,18 @@ function createCompleter(): (line: string) => readonly [readonly string[], strin
     if (command === "health") {
       return [filterStartsWith(healthFlags, fragment), rawLine] as const;
     }
+    if (command === "links") {
+      return [filterStartsWith(linksFlags, fragment), rawLine] as const;
+    }
+    if (command === "headers") {
+      return [filterStartsWith(headersFlags, fragment), rawLine] as const;
+    }
+    if (command === "console") {
+      return [filterStartsWith(consoleFlags, fragment), rawLine] as const;
+    }
+    if (command === "clean") {
+      return [filterStartsWith(cleanFlags, fragment), rawLine] as const;
+    }
     return [[], rawLine] as const;
   };
 
@@ -495,12 +590,12 @@ async function runAudit(projectRoot: string, session: ShellSessionState, passthr
 
 async function runMeasureFromShell(session: ShellSessionState, args: readonly string[]): Promise<void> {
   const argv: string[] = ["node", "apex-auditor", "--config", session.configPath, ...args];
-  const escResult = await runWithEscAbort(async (_signal) => {
+  const escResult = await runWithEscAbort(async (signal) => {
     startSpinner("Running measure (fast metrics)");
     try {
       // eslint-disable-next-line no-console
       console.log("Starting measure (fast metrics). Tip: use --desktop-only/--mobile-only and --parallel to tune speed.");
-      await runMeasureCli(argv);
+      await runMeasureCli(argv, { signal });
     } finally {
       stopSpinner();
     }
@@ -515,11 +610,36 @@ async function runMeasureFromShell(session: ShellSessionState, args: readonly st
 async function runWithEscAbort<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T | "aborted"> {
   const controller: AbortController = new AbortController();
   const input = process.stdin;
+  input.resume();
+  readline.emitKeypressEvents(input);
   if (input.isTTY) {
     // eslint-disable-next-line no-console
     console.log(theme.dim("Esc: cancel | Ctrl+C: exit"));
   }
-  const handleKeypress = (buffer: Buffer): void => {
+  const handleKeypress = (_str: string, key: { readonly name?: string; readonly sequence?: string } | undefined): void => {
+    if (key?.name === "c" && key?.sequence === "\u0003") {
+      controller.abort();
+      try {
+        process.kill(process.pid, "SIGINT");
+      } catch {
+        return;
+      }
+      return;
+    }
+    if (key?.name === "escape" || key?.sequence === "\u001b") {
+      controller.abort();
+    }
+  };
+  const handleData = (buffer: Buffer): void => {
+    if (buffer.length === 1 && buffer[0] === 0x03) {
+      controller.abort();
+      try {
+        process.kill(process.pid, "SIGINT");
+      } catch {
+        return;
+      }
+      return;
+    }
     if (buffer.length === 1 && buffer[0] === 0x1b) {
       controller.abort();
     }
@@ -528,19 +648,54 @@ async function runWithEscAbort<T>(task: (signal: AbortSignal) => Promise<T>): Pr
   if (input.isTTY) {
     input.setRawMode(true);
   }
-  input.on("data", handleKeypress);
+  input.on("keypress", handleKeypress);
+  input.on("data", handleData);
   try {
-    const result = await task(controller.signal);
-    if (controller.signal.aborted) {
-      return "aborted";
+    try {
+      const result = await task(controller.signal);
+      if (controller.signal.aborted) {
+        return "aborted";
+      }
+      return result;
+    } catch (error: unknown) {
+      const message: string = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted || message.includes("Aborted")) {
+        return "aborted";
+      }
+      throw error;
     }
-    return result;
   } finally {
-    input.off("data", handleKeypress);
+    input.off("keypress", handleKeypress);
+    input.off("data", handleData);
     if (input.isTTY && previousRaw !== undefined) {
       input.setRawMode(previousRaw);
     }
   }
+}
+
+function resolveCleanTargets(params: { readonly projectRoot: string; readonly session: ShellSessionState; readonly args: readonly string[] }): readonly string[] {
+  const removeReports: boolean = params.args.includes("--no-reports") ? false : true;
+  const removeConfig: boolean = params.args.includes("--remove-config") || params.args.includes("--all");
+  const targets: string[] = [];
+  if (removeReports) {
+    targets.push(resolve(params.projectRoot, ".apex-auditor"));
+  }
+  if (removeConfig) {
+    targets.push(resolve(params.projectRoot, params.session.configPath));
+  }
+  return targets;
+}
+
+async function confirmCleanInShell(params: { readonly rl: readline.Interface; readonly targets: readonly string[] }): Promise<boolean> {
+  if (params.targets.length === 0) {
+    return true;
+  }
+  const question: string = `This will remove:\n${params.targets.join("\n")}\nContinue? (y/N) `;
+  const answer: string = await new Promise<string>((resolvePromise) => {
+    params.rl.question(question, (value: string) => resolvePromise(value));
+  });
+  const text: string = answer.trim().toLowerCase();
+  return text === "y" || text === "yes";
 }
 
 async function runAuditFromShell(projectRoot: string, session: ShellSessionState, args: readonly string[]): Promise<ShellSessionState> {
@@ -607,6 +762,23 @@ async function handleShellCommand(projectRoot: string, session: ShellSessionStat
   }
   if (command.id === "health") {
     await runHealthFromShell(session, command.args);
+    return { session, shouldExit: false };
+  }
+  if (command.id === "links") {
+    await runLinksFromShell(session, command.args);
+    return { session, shouldExit: false };
+  }
+  if (command.id === "headers") {
+    await runHeadersFromShell(session, command.args);
+    return { session, shouldExit: false };
+  }
+  if (command.id === "console") {
+    await runConsoleAuditFromShell(session, command.args);
+    return { session, shouldExit: false };
+  }
+  if (command.id === "clean") {
+    const argv: string[] = ["node", "apex-auditor", "--project-root", projectRoot, "--config-path", session.configPath, ...command.args];
+    await runCleanCli(argv);
     return { session, shouldExit: false };
   }
   if (command.id === "init") {
@@ -683,17 +855,109 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
   const projectRoot: string = process.cwd();
   let session: ShellSessionState = await loadSession(projectRoot);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, completer: createCompleter() });
-  rl.on("SIGINT", () => {
+  const onSigint = (): void => {
     rl.close();
-  });
+  };
+  rl.on("SIGINT", onSigint);
+  let suppressInput: boolean = false;
   const version: string = await readCliVersion();
   printHomeScreen({ version, session });
   rl.setPrompt(buildPrompt(session));
   rl.prompt();
-  rl.on("line", async (line: string) => {
+
+  let onLine: ((line: string) => Promise<void>) | undefined;
+
+  const runWizardInShell = async (): Promise<void> => {
+    const previousPrompt: string = buildPrompt(session);
+    rl.pause();
+    rl.setPrompt("");
+    rl.off("SIGINT", onSigint);
+    try {
+      rl.prompt(true);
+    } catch {
+      // ignore
+    }
+    if (typeof onLine === "function") {
+      rl.off("line", onLine);
+    }
+    try {
+      await runWizardCli(["node", "apex-auditor"]);
+    } finally {
+      rl.on("SIGINT", onSigint);
+      if (rl.closed) {
+        return;
+      }
+      if (typeof onLine === "function") {
+        rl.on("line", onLine);
+      }
+      rl.setPrompt(previousPrompt);
+      rl.resume();
+    }
+  };
+
+  onLine = async (line: string): Promise<void> => {
+    if (suppressInput) {
+      return;
+    }
+    let command: ParsedShellCommand = parseShellCommand(line);
+    if (command.id === "clean" && !command.args.includes("--yes") && !command.args.includes("-y") && process.stdin.isTTY) {
+      const targets: readonly string[] = resolveCleanTargets({ projectRoot, session, args: command.args });
+      const ok: boolean = await confirmCleanInShell({ rl, targets });
+      if (!ok) {
+        // eslint-disable-next-line no-console
+        console.log("Cancelled.");
+        rl.setPrompt(buildPrompt(session));
+        rl.prompt();
+        return;
+      }
+      command = { ...command, args: [...command.args, "--yes"] };
+    }
+    if (command.id === "audit" && process.stdin.isTTY) {
+      const exists: boolean = await pathExists(session.configPath);
+      if (!exists) {
+        suppressInput = true;
+        rl.pause();
+        const answer: string = await new Promise<string>((resolvePromise) => {
+          rl.question(
+            `Config not found at ${session.configPath}. Run the init wizard now? (Y/n) `,
+            (value: string) => resolvePromise(value),
+          );
+        });
+        const text: string = answer.trim().toLowerCase();
+        const accepted: boolean = text.length === 0 || text === "y" || text === "yes";
+        if (accepted) {
+          // eslint-disable-next-line no-console
+          console.log("Starting config wizard...");
+          try {
+            await runWizardInShell();
+            // eslint-disable-next-line no-console
+            console.log(`Ready. Next: ${theme.cyan("audit")}.`);
+          } finally {
+            // no-op
+          }
+        } else {
+          // eslint-disable-next-line no-console
+          console.log(`Config required. Create one with ${theme.cyan("init")} or point to an existing file with ${theme.cyan("config <path>")}.`);
+        }
+        rl.resume();
+        suppressInput = false;
+        rl.setPrompt(buildPrompt(session));
+        rl.prompt();
+        return;
+      }
+    }
+    if (command.id === "init") {
+      // eslint-disable-next-line no-console
+      console.log("Starting config wizard...");
+      await runWizardInShell();
+      // eslint-disable-next-line no-console
+      console.log(`Ready. Next: ${theme.cyan("measure")} or ${theme.cyan("audit")}.`);
+      rl.setPrompt(buildPrompt(session));
+      rl.prompt();
+      return;
+    }
     rl.pause();
     try {
-      const command: ParsedShellCommand = parseShellCommand(line);
       const result: { readonly session: ShellSessionState; readonly shouldExit: boolean } = await handleShellCommand(projectRoot, session, command);
       session = result.session;
       if (result.shouldExit) {
@@ -705,7 +969,8 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
     }
     rl.setPrompt(buildPrompt(session));
     rl.prompt();
-  });
+  };
+  rl.on("line", onLine);
   await new Promise<void>((resolvePromise) => {
     rl.on("close", () => resolvePromise());
   });

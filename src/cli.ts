@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { exec } from "node:child_process";
 import { loadConfig } from "./config.js";
+import { buildDevServerGuidanceLines } from "./dev-server-guidance.js";
 import type { AxeResult, AxeSummary, AxeViolation } from "./accessibility-types.js";
 import { runAccessibilityAudit } from "./accessibility.js";
 import { startSpinner, stopSpinner, updateSpinnerMessage } from "./spinner.js";
@@ -1448,7 +1449,11 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
       process.exitCode = 130;
       return;
     }
-    handleFriendlyError(error);
+    await handleFriendlyError({
+      error,
+      configPath,
+      baseUrl: filteredConfig.baseUrl,
+    });
     process.exitCode = 1;
     return;
   } finally {
@@ -2549,11 +2554,30 @@ function boxifyWithSeparators(lines: readonly string[]): string {
   return [top, ...body, bottom].join("\n");
 }
 
-function handleFriendlyError(error: unknown): void {
+function isConnectionError(error: unknown): boolean {
+  const anyError = error as { readonly code?: unknown; readonly message?: unknown } | undefined;
+  const code: string = typeof anyError?.code === "string" ? anyError.code : "";
+  if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return true;
+  }
+  const message: string = typeof anyError?.message === "string" ? anyError.message : String(error);
+  return message.includes("ECONNREFUSED") || message.includes("ENOTFOUND") || message.includes("EAI_AGAIN") || message.includes("Could not reach");
+}
+
+async function handleFriendlyError(params: {
+  readonly error: unknown;
+  readonly configPath?: string;
+  readonly baseUrl?: string;
+}): Promise<void> {
+  const error: unknown = params.error;
   const message: string = error instanceof Error ? error.message : String(error);
-  if (message.includes("Could not reach")) {
+  if (isConnectionError(error) && params.baseUrl !== undefined) {
+    const noColor: boolean = Boolean(process.env.NO_COLOR) || process.env.CI === "true";
+    const theme: UiTheme = new UiTheme({ noColor });
+    const projectRoot: string = params.configPath ? dirname(params.configPath) : process.cwd();
+    const lines: readonly string[] = await buildDevServerGuidanceLines({ projectRoot, baseUrl: params.baseUrl });
     // eslint-disable-next-line no-console
-    console.error("Cannot reach the target URL. Is your dev server running and accessible from this machine?");
+    console.error(renderPanel({ title: theme.bold("Dev server"), lines }));
     return;
   }
   if (message.includes("LanternError")) {

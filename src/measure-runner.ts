@@ -672,6 +672,7 @@ export async function runMeasureForConfig(params: {
   readonly timeoutMs?: number;
   readonly artifactsDir?: string;
   readonly captureScreenshots?: boolean;
+  readonly signal?: AbortSignal;
   readonly onProgress?: (params: { readonly completed: number; readonly total: number; readonly path: string; readonly device: ApexDevice; readonly etaMs?: number }) => void;
 }): Promise<MeasureSummary> {
   const startedAtMs: number = Date.now();
@@ -693,6 +694,9 @@ export async function runMeasureForConfig(params: {
         tasks,
         parallel,
         runner: async (task) => {
+          if (params.signal?.aborted) {
+            throw new Error("Aborted");
+          }
           const result: MeasureResult = await runSingleMeasure({ client, task, timeoutMs, artifactsDir, captureScreenshots });
           progressLock.count += 1;
           const completed: number = progressLock.count;

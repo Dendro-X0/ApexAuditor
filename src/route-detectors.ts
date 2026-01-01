@@ -3,7 +3,7 @@ import { join, relative, sep } from "node:path";
 import type { Dirent } from "node:fs";
 import { pathExists, readTextFile } from "./fs-utils.js";
 
-export type RouteDetectorId = "next-app" | "next-pages" | "remix-routes" | "sveltekit-routes" | "spa-html";
+export type RouteDetectorId = "next-app" | "next-pages" | "nuxt-pages" | "remix-routes" | "sveltekit-routes" | "spa-html";
 
 export interface DetectRoutesOptions {
   readonly projectRoot: string;
@@ -46,15 +46,18 @@ interface RouteDetector {
 }
 
 const PAGE_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js"] as const;
+const NUXT_PAGE_EXTENSIONS = [".vue"] as const;
 const DEFAULT_LIMIT: number = 200;
 const SOURCE_NEXT_APP: RouteDetectorId = "next-app";
 const SOURCE_NEXT_PAGES: RouteDetectorId = "next-pages";
+const SOURCE_NUXT_PAGES: RouteDetectorId = "nuxt-pages";
 const SOURCE_REMIX: RouteDetectorId = "remix-routes";
 const SOURCE_SVELTEKIT: RouteDetectorId = "sveltekit-routes";
 const SOURCE_SPA: RouteDetectorId = "spa-html";
 const ROUTE_DETECTORS: readonly RouteDetector[] = [
   createNextAppDetector(),
   createNextPagesDetector(),
+  createNuxtPagesDetector(),
   createRemixRoutesDetector(),
   createSvelteKitRoutesDetector(),
   createSpaHtmlDetector(),
@@ -99,6 +102,28 @@ function createNextAppDetector(): RouteDetector {
       const allRoutes: DetectedRoute[] = [];
       for (const root of roots) {
         const routes = await detectAppRoutes(root, options.limit);
+        allRoutes.push(...routes);
+        if (allRoutes.length >= options.limit) {
+          break;
+        }
+      }
+      return allRoutes;
+    },
+  };
+}
+
+function createNuxtPagesDetector(): RouteDetector {
+  return {
+    id: SOURCE_NUXT_PAGES,
+    canDetect: async (options) => {
+      const roots: readonly string[] = await findNuxtPagesRoots(options.projectRoot);
+      return roots.length > 0;
+    },
+    detect: async (options) => {
+      const roots: readonly string[] = await findNuxtPagesRoots(options.projectRoot);
+      const allRoutes: DetectedRoute[] = [];
+      for (const root of roots) {
+        const routes = await detectNuxtPagesRoutes(root, options.limit);
         allRoutes.push(...routes);
         if (allRoutes.length >= options.limit) {
           break;
@@ -204,6 +229,53 @@ async function findNextAppRoots(projectRoot: string): Promise<string[]> {
   return roots;
 }
 
+async function findNuxtPagesRoots(projectRoot: string): Promise<string[]> {
+  const roots: string[] = [];
+  const seen: Set<string> = new Set();
+  const addRoot = (candidate: string) => {
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      roots.push(candidate);
+    }
+  };
+  const directCandidates: readonly string[] = [
+    join(projectRoot, "pages"),
+    join(projectRoot, "src", "pages"),
+    join(projectRoot, "app", "pages"),
+  ];
+  for (const candidate of directCandidates) {
+    if (await pathExists(candidate)) {
+      addRoot(candidate);
+    }
+  }
+  const containers: readonly string[] = ["apps", "packages"] as const;
+  for (const container of containers) {
+    const containerPath: string = join(projectRoot, container);
+    if (!(await pathExists(containerPath))) {
+      continue;
+    }
+    const entries: Dirent[] = await readdir(containerPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const pagesRoot: string = join(containerPath, entry.name, "pages");
+      const srcPagesRoot: string = join(containerPath, entry.name, "src", "pages");
+      const appPagesRoot: string = join(containerPath, entry.name, "app", "pages");
+      if (await pathExists(pagesRoot)) {
+        addRoot(pagesRoot);
+      }
+      if (await pathExists(srcPagesRoot)) {
+        addRoot(srcPagesRoot);
+      }
+      if (await pathExists(appPagesRoot)) {
+        addRoot(appPagesRoot);
+      }
+    }
+  }
+  return roots;
+}
+
 async function findNextPagesRoots(projectRoot: string): Promise<string[]> {
   const roots: string[] = [];
   const seen: Set<string> = new Set();
@@ -257,6 +329,11 @@ async function detectPagesRoutes(pagesRoot: string, limit: number): Promise<Dete
   return files.map((file) => buildRoute(file, pagesRoot, formatPagesRoutePath, SOURCE_NEXT_PAGES));
 }
 
+async function detectNuxtPagesRoutes(pagesRoot: string, limit: number): Promise<DetectedRoute[]> {
+  const files = await collectRouteFiles(pagesRoot, limit, isNuxtPageFileAllowed);
+  return files.map((file) => buildRoute(file, pagesRoot, formatNuxtRoutePath, SOURCE_NUXT_PAGES));
+}
+
 async function detectRemixRoutes(routesRoot: string, limit: number): Promise<DetectedRoute[]> {
   const files = await collectRouteFiles(routesRoot, limit, isRemixRouteFile);
   return files.map((file) => buildRoute(file, routesRoot, formatRemixRoutePath, SOURCE_REMIX));
@@ -308,6 +385,26 @@ async function collectRouteFiles(
 function shouldRecurseDirectory(relativePath: string): boolean {
   const posixPath = normalisePath(relativePath);
   if (posixPath.startsWith("api/")) {
+    return false;
+  }
+  return true;
+}
+
+function isNuxtPageFileAllowed(entry: Dirent, relativePath: string): boolean {
+  if (!entry.isFile()) {
+    return false;
+  }
+  const posixPath = normalisePath(relativePath);
+  if (!hasAllowedNuxtExtension(posixPath)) {
+    return false;
+  }
+  if (posixPath.startsWith("api/")) {
+    return false;
+  }
+  if (posixPath.includes(".server.")) {
+    return false;
+  }
+  if (posixPath.startsWith("_")) {
     return false;
   }
   return true;
@@ -373,6 +470,10 @@ function hasAllowedExtension(path: string): boolean {
   return PAGE_EXTENSIONS.some((extension) => path.endsWith(extension));
 }
 
+function hasAllowedNuxtExtension(path: string): boolean {
+  return NUXT_PAGE_EXTENSIONS.some((extension) => path.endsWith(extension));
+}
+
 function buildRoute(
   filePath: string,
   root: string,
@@ -404,6 +505,36 @@ function formatPagesRoutePath(relativePath: string): string {
     return normaliseRoute(cleanPath.slice(0, -6));
   }
   return normaliseRoute(cleanPath);
+}
+
+function formatNuxtRoutePath(relativePath: string): string {
+  const cleanPath: string = relativePath.replace(/\\/g, "/").replace(/\.[^/.]+$/, "");
+  if (cleanPath === "index") {
+    return "/";
+  }
+  if (cleanPath.endsWith("/index")) {
+    return normaliseRoute(cleanPath.slice(0, -6));
+  }
+  const segments: readonly string[] = cleanPath.split("/").filter((segment) => segment.length > 0);
+  const mapped: readonly string[] = segments.map((segment) => mapNuxtSegment(segment)).filter((segment) => segment.length > 0);
+  return mapped.length === 0 ? "/" : normaliseRoute(mapped.join("/"));
+}
+
+function mapNuxtSegment(segment: string): string {
+  if (segment === "_") {
+    return ":param";
+  }
+  if (segment.startsWith("_")) {
+    const name: string = segment.slice(1);
+    return name.length === 0 ? ":param" : `:${name}`;
+  }
+  const bracketMatch: RegExpMatchArray | null = segment.match(/^\[(\.\.\.)?(.+?)\]$/);
+  if (bracketMatch) {
+    const name: string = bracketMatch[2] ?? "param";
+    const resolved: string = name.replace(/^\.\.\./, "");
+    return resolved.length === 0 ? ":param" : `:${resolved}`;
+  }
+  return segment;
 }
 
 function formatRemixRoutePath(relativePath: string): string {

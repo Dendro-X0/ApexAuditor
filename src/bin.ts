@@ -7,8 +7,26 @@ import { runShellCli } from "./shell-cli.js";
 import { runMeasureCli } from "./measure-cli.js";
 import { runBundleCli } from "./bundle-cli.js";
 import { runHealthCli } from "./health-cli.js";
+import { runLinksCli } from "./links-cli.js";
+import { runHeadersCli } from "./headers-cli.js";
+import { runConsoleCli } from "./console-cli.js";
+import { runCleanCli } from "./clean-cli.js";
 
-type ApexCommandId = "audit" | "measure" | "bundle" | "health" | "wizard" | "quickstart" | "guide" | "shell" | "help" | "init";
+type ApexCommandId =
+  | "audit"
+  | "measure"
+  | "bundle"
+  | "health"
+  | "links"
+  | "headers"
+  | "console"
+  | "clean"
+  | "wizard"
+  | "quickstart"
+  | "guide"
+  | "shell"
+  | "help"
+  | "init";
 
 interface ParsedBinArgs {
   readonly command: ApexCommandId;
@@ -32,6 +50,10 @@ function parseBinArgs(argv: readonly string[]): ParsedBinArgs {
     rawCommand === "measure" ||
     rawCommand === "bundle" ||
     rawCommand === "health" ||
+    rawCommand === "links" ||
+    rawCommand === "headers" ||
+    rawCommand === "console" ||
+    rawCommand === "clean" ||
     rawCommand === "wizard" ||
     rawCommand === "quickstart" ||
     rawCommand === "guide" ||
@@ -135,6 +157,10 @@ function printHelp(topic?: string): void {
       "  measure    Fast batch metrics (CDP-based, non-Lighthouse)",
       "  bundle     Bundle size audit (Next.js .next/ or dist/ build output)",
       "  health     HTTP status + latency checks for configured routes",
+      "  links      Broken links audit (sitemap + HTML link extraction)",
+      "  headers    Security headers audit",
+      "  console    Console errors + runtime exceptions audit (headless Chrome)",
+      "  clean      Remove ApexAuditor artifacts (reports/cache and optionally config)",
       "  help       Show this help message",
       "",
       "Options (audit):",
@@ -182,6 +208,38 @@ function printHelp(topic?: string): void {
       "  --config <path>        Config path (default apex.config.json)",
       "  --parallel <n>         Parallel requests (default auto)",
       "  --timeout-ms <ms>      Per-request timeout (default 20000)",
+      "  --json                 Print JSON report to stdout",
+      "",
+      "Options (links):",
+      "  --config <path>        Config path (default apex.config.json)",
+      "  --sitemap <url>        Override sitemap URL (default <baseUrl>/sitemap.xml)",
+      "  --parallel <n>         Parallel requests (default auto)",
+      "  --timeout-ms <ms>      Per-request timeout (default 20000)",
+      "  --max-urls <n>         Limit total URLs checked (default 200)",
+      "  --json                 Print JSON report to stdout",
+      "",
+      "Options (headers):",
+      "  --config <path>        Config path (default apex.config.json)",
+      "  --parallel <n>         Parallel requests (default auto)",
+      "  --timeout-ms <ms>      Per-request timeout (default 20000)",
+      "  --json                 Print JSON report to stdout",
+      "",
+      "Options (console):",
+      "  --config <path>        Config path (default apex.config.json)",
+      "  --parallel <n>         Parallel workers (default auto)",
+      "  --timeout-ms <ms>      Per-navigation timeout (default 60000)",
+      "  --max-events <n>       Cap captured events per combo (default 50)",
+      "  --json                 Print JSON report to stdout",
+      "",
+      "Options (clean):",
+      "  --project-root <path>  Project root (default cwd)",
+      "  --config-path <path>   Config file path relative to project root (default apex.config.json)",
+      "  --reports              Remove .apex-auditor/ (default)",
+      "  --no-reports           Keep .apex-auditor/",
+      "  --remove-config        Remove config file",
+      "  --all                  Remove reports and config",
+      "  --dry-run              Print planned removals without deleting",
+      "  --yes, -y              Skip confirmation prompt",
       "  --json                 Print JSON report to stdout",
       "",
       "Outputs:",
@@ -247,6 +305,22 @@ export async function runBin(argv: readonly string[]): Promise<void> {
     }
     if (parsed.command === "health") {
       await runHealthCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "links") {
+      await runLinksCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "headers") {
+      await runHeadersCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "console") {
+      await runConsoleCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "clean") {
+      await runCleanCli(parsed.argv);
       return;
     }
     if (parsed.command === "init" || parsed.command === "wizard" || parsed.command === "guide") {

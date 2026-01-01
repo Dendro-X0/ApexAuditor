@@ -20,9 +20,18 @@ Inside the shell:
 - `audit`
 - `bundle`
 - `health`
+- `links`
+- `headers`
+- `console`
 - `open`
 - `init`
 - `config <path>`
+
+Notes:
+
+- `init` will attempt to detect your project type from `package.json`.
+- In monorepos, `init` can scan `apps/*` and `packages/*` and prompt you to choose which app/package to configure.
+- Confirmation prompts default to **Yes** on Enter (e.g. overwrite).
 
 ### `audit`
 
@@ -111,6 +120,66 @@ Key flags:
 Output:
 
 - `.apex-auditor/health.json`
+
+### `links`
+
+Sitemap + HTML link extraction to find broken internal links.
+
+```bash
+apex-auditor links --config apex.config.json
+```
+
+Key flags:
+
+- `--config <path>`
+- `--sitemap <url>`
+- `--parallel <n>`
+- `--timeout-ms <ms>`
+- `--max-urls <n>`
+- `--json`
+
+Output:
+
+- `.apex-auditor/links.json`
+
+### `headers`
+
+Security headers presence check per configured route.
+
+```bash
+apex-auditor headers --config apex.config.json
+```
+
+Key flags:
+
+- `--config <path>`
+- `--parallel <n>`
+- `--timeout-ms <ms>`
+- `--json`
+
+Output:
+
+- `.apex-auditor/headers.json`
+
+### `console`
+
+Headless Chrome pass that captures console errors and uncaught exceptions.
+
+```bash
+apex-auditor console --config apex.config.json
+```
+
+Key flags:
+
+- `--config <path>`
+- `--parallel <n>`
+- `--timeout-ms <ms>`
+- `--max-events <n>`
+- `--json`
+
+Output:
+
+- `.apex-auditor/console.json`
 
 ## 2. CI mode and budgets
 

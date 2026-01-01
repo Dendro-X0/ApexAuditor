@@ -11,6 +11,12 @@ Typical workflow:
 5. Use `health` to validate routes are up and reasonably fast.
 6. Type `open` to review the latest HTML report.
 
+Optional audits:
+
+- `links` (broken links crawl)
+- `headers` (security headers)
+- `console` (console errors + runtime exceptions)
+
 ## 1. Install / run
 
 From your web project root:
@@ -99,18 +105,48 @@ Output:
 
 - `.apex-auditor/health.json`
 
+## 7. Links (broken links crawl)
+
+```text
+> links
+```
+
+Output:
+
+- `.apex-auditor/links.json`
+
+## 8. Headers (security headers)
+
+```text
+> headers
+```
+
+Output:
+
+- `.apex-auditor/headers.json`
+
+## 9. Console (runtime errors)
+
+```text
+> console
+```
+
+Output:
+
+- `.apex-auditor/console.json`
+
 Notes:
 
 - **Runs-per-combo is always 1**. Re-run the same command to compare results.
 - The report includes Performance, Accessibility, Best Practices, and SEO.
 
-## 7. Open the report
+## 10. Open the report
 
 ```text
 > open
 ```
 
-## 8. Next steps
+## 11. Next steps
 
 - `configuration-and-routes.md` for config details.
 - `cli-and-ci.md` for non-interactive CLI usage and CI/budgets.

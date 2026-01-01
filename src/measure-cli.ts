@@ -213,7 +213,7 @@ function buildErrorTable(summary: MeasureSummary): string {
  *
  * @param argv - The process arguments array.
  */
-export async function runMeasureCli(argv: readonly string[]): Promise<void> {
+export async function runMeasureCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   const args: MeasureArgs = parseArgs(argv);
   const { configPath, config } = await loadConfig({ configPath: args.configPath });
   const filteredConfig: ApexConfig = filterConfigDevices(config, args.deviceFilter);
@@ -236,6 +236,7 @@ export async function runMeasureCli(argv: readonly string[]): Promise<void> {
     timeoutMs: args.timeoutMs,
     artifactsDir,
     captureScreenshots: args.screenshots,
+    signal: options?.signal,
     onProgress: ({ completed, total, path, device, etaMs }) => {
       const etaText: string = etaMs !== undefined ? ` | ETA ${formatEta(etaMs)}` : "";
       const message: string = `Running measure ${completed}/${total} – ${path} [${device}]${etaText}`;

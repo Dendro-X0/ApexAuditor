@@ -4,6 +4,7 @@ import { request as httpsRequest } from "node:https";
 import { resolve } from "node:path";
 import type { ApexConfig } from "./types.js";
 import { loadConfig } from "./config.js";
+import { buildDevServerGuidanceLines } from "./dev-server-guidance.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -153,11 +154,19 @@ async function runHttpHealthCheck(params: { readonly url: string; readonly timeo
   });
 }
 
-async function runWithConcurrency(params: { readonly tasks: readonly HealthResult[]; readonly parallel: number; readonly runner: (task: HealthResult) => Promise<HealthResult> }): Promise<readonly HealthResult[]> {
+async function runWithConcurrency(params: {
+  readonly tasks: readonly HealthResult[];
+  readonly parallel: number;
+  readonly runner: (task: HealthResult) => Promise<HealthResult>;
+  readonly signal?: AbortSignal;
+}): Promise<readonly HealthResult[]> {
   const results: HealthResult[] = new Array(params.tasks.length);
   const nextIndex = { value: 0 };
   const worker = async (): Promise<void> => {
     while (true) {
+      if (params.signal?.aborted) {
+        throw new Error("Aborted");
+      }
       const index: number = nextIndex.value;
       if (index >= params.tasks.length) {
         return;
@@ -203,7 +212,11 @@ function buildSlowestTable(results: readonly HealthResult[]): string {
   return renderTable({ headers: ["Label", "Path", "Total", "TTFB", "Bytes"], rows });
 }
 
-export async function runHealthCli(argv: readonly string[]): Promise<void> {
+function isConnectionErrorMessage(message: string): boolean {
+  return message.includes("ECONNREFUSED") || message.includes("ENOTFOUND") || message.includes("EAI_AGAIN") || message.includes("Timed out");
+}
+
+export async function runHealthCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   stopSpinner();
   const args: HealthArgs = parseArgs(argv);
   const startedAtMs: number = Date.now();
@@ -219,7 +232,11 @@ export async function runHealthCli(argv: readonly string[]): Promise<void> {
   const results: readonly HealthResult[] = await runWithConcurrency({
     tasks: targets,
     parallel,
+    signal: options?.signal,
     runner: async (t) => {
+      if (options?.signal?.aborted) {
+        throw new Error("Aborted");
+      }
       try {
         const r = await runHttpHealthCheck({ url: t.url, timeoutMs: args.timeoutMs });
         return { ...t, statusCode: r.statusCode, ttfbMs: r.ttfbMs, totalMs: r.totalMs, bytes: r.bytes };
@@ -258,6 +275,18 @@ export async function runHealthCli(argv: readonly string[]): Promise<void> {
 
   const errorCount: number = results.filter((r) => Boolean(r.runtimeErrorMessage)).length;
   const okCount: number = results.filter((r) => (r.statusCode ?? 0) >= 200 && (r.statusCode ?? 0) < 300).length;
+
+  if (errorCount === results.length) {
+    const messages: readonly string[] = results
+      .map((r) => r.runtimeErrorMessage)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    const first: string = messages[0] ?? "";
+    if (first.length > 0 && isConnectionErrorMessage(first)) {
+      const lines: readonly string[] = await buildDevServerGuidanceLines({ projectRoot: resolve(configPath, ".."), baseUrl: config.baseUrl });
+      // eslint-disable-next-line no-console
+      console.log(renderPanel({ title: theme.bold("Dev server"), lines }));
+    }
+  }
 
   const lines: readonly string[] = [
     `Config: ${configPath}`,
