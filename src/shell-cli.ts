@@ -14,6 +14,7 @@ import { runMeasureCli } from "./measure-cli.js";
 import { runWizardCli } from "./wizard-cli.js";
 import { runCleanCli } from "./clean-cli.js";
 import { runUninstallCli } from "./uninstall-cli.js";
+import { loadConfig } from "./config.js";
 import { pathExists } from "./fs-utils.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
@@ -23,6 +24,9 @@ import { UiTheme } from "./ui/ui-theme.js";
 type PresetId = "default" | "overview" | "quick" | "accurate" | "fast";
 
 type BuildIdStrategy = "auto" | "manual";
+
+type ConfigRoutesCommandId = "pages" | "routes";
+type ConfigEditCommandId = "add-page" | "rm-page";
 
 interface ShellSessionState {
   readonly configPath: string;
@@ -146,6 +150,154 @@ async function runConsoleAuditFromShell(session: ShellSessionState, args: readon
 
 async function writeJsonFile<T extends object>(absolutePath: string, value: T): Promise<void> {
   await writeFile(absolutePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function loadCurrentConfig(configPath: string): Promise<{ readonly absolutePath: string; readonly config: import("./types.js").ApexConfig }> {
+  const loaded = await loadConfig({ configPath });
+  return { absolutePath: loaded.configPath, config: loaded.config };
+}
+
+function formatPagesTable(pages: readonly import("./types.js").ApexPageConfig[]): string {
+  const headers: readonly string[] = ["#", "path", "label", "devices"] as const;
+  const rows: readonly (readonly string[])[] = pages.map((p, index) => {
+    return [String(index + 1), p.path, p.label, p.devices.join(",")];
+  });
+  return renderTable({ headers, rows });
+}
+
+async function printConfiguredPages(session: ShellSessionState): Promise<void> {
+  const exists: boolean = await pathExists(session.configPath);
+  if (!exists) {
+    // eslint-disable-next-line no-console
+    console.log(`Config not found at ${session.configPath}. Run 'init' to create a config, or use 'config <path>' to point to one.`);
+    return;
+  }
+  const { absolutePath, config } = await loadCurrentConfig(session.configPath);
+  const lines: string[] = [];
+  lines.push(`${theme.dim("Config")}: ${absolutePath}`);
+  lines.push(`${theme.dim("Base URL")}: ${config.baseUrl}`);
+  lines.push("");
+  lines.push(formatPagesTable(config.pages));
+  // eslint-disable-next-line no-console
+  console.log(renderPanel({ title: theme.bold("Pages"), lines }));
+}
+
+function parseDevices(raw: string): readonly ApexDevice[] | undefined {
+  const parts: readonly string[] = raw
+    .split(",")
+    .map((p) => p.trim().toLowerCase())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    return undefined;
+  }
+  const devices: ApexDevice[] = [];
+  for (const part of parts) {
+    if (part === "mobile" || part === "desktop") {
+      devices.push(part);
+      continue;
+    }
+    return undefined;
+  }
+  return [...new Set(devices)];
+}
+
+function askLine(rl: readline.Interface, question: string): Promise<string> {
+  return new Promise<string>((resolvePromise) => {
+    rl.question(question, (value: string) => resolvePromise(value));
+  });
+}
+
+async function addPageInteractive(rl: readline.Interface, session: ShellSessionState): Promise<void> {
+  const exists: boolean = await pathExists(session.configPath);
+  if (!exists) {
+    // eslint-disable-next-line no-console
+    console.log(`Config not found at ${session.configPath}. Run 'init' first.`);
+    return;
+  }
+  const { absolutePath, config } = await loadCurrentConfig(session.configPath);
+  // eslint-disable-next-line no-console
+  console.log(formatPagesTable(config.pages));
+  const rawPath: string = (await askLine(rl, "New page path (must start with /): ")).trim();
+  if (!rawPath.startsWith("/")) {
+    // eslint-disable-next-line no-console
+    console.log("Cancelled: path must start with '/'.");
+    return;
+  }
+  const label: string = (await askLine(rl, "Label (optional): ")).trim() || rawPath;
+  const rawDevices: string = (await askLine(rl, "Devices (comma-separated: mobile,desktop) [mobile,desktop]: ")).trim();
+  const devices: readonly ApexDevice[] = parseDevices(rawDevices.length > 0 ? rawDevices : "mobile,desktop") ?? ["mobile", "desktop"];
+  const nextPages: import("./types.js").ApexPageConfig[] = [...config.pages, { path: rawPath, label, devices }];
+  const nextConfig: import("./types.js").ApexConfig = { ...config, pages: nextPages };
+  await writeJsonFile<import("./types.js").ApexConfig>(absolutePath, nextConfig);
+  // eslint-disable-next-line no-console
+  console.log(`Added page ${rawPath}.`);
+}
+
+async function removePageInteractive(rl: readline.Interface, session: ShellSessionState, args: readonly string[]): Promise<void> {
+  const exists: boolean = await pathExists(session.configPath);
+  if (!exists) {
+    // eslint-disable-next-line no-console
+    console.log(`Config not found at ${session.configPath}. Run 'init' first.`);
+    return;
+  }
+  const { absolutePath, config } = await loadCurrentConfig(session.configPath);
+  if (config.pages.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log("No pages configured.");
+    return;
+  }
+  const byPath: string | undefined = args[0]?.trim();
+  const resolvedIndex: number | undefined = (() => {
+    if (byPath && byPath.startsWith("/")) {
+      const index: number = config.pages.findIndex((p) => p.path === byPath);
+      return index >= 0 ? index : undefined;
+    }
+    if (byPath && /^\d+$/.test(byPath)) {
+      const idx: number = parseInt(byPath, 10) - 1;
+      return idx >= 0 && idx < config.pages.length ? idx : undefined;
+    }
+    return undefined;
+  })();
+  const indexToRemove: number | undefined = resolvedIndex ?? (() => {
+    // eslint-disable-next-line no-console
+    console.log(formatPagesTable(config.pages));
+    return undefined;
+  })();
+  const finalIndex: number | undefined = indexToRemove ?? (() => {
+    return undefined;
+  })();
+  let resolvedFinalIndex: number | undefined = finalIndex;
+  if (resolvedFinalIndex === undefined) {
+    const answer: string = (await askLine(rl, "Remove which page? Enter # or /path (blank to cancel): ")).trim();
+    if (answer.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log("Cancelled.");
+      return;
+    }
+    if (answer.startsWith("/")) {
+      const idx: number = config.pages.findIndex((p) => p.path === answer);
+      resolvedFinalIndex = idx >= 0 ? idx : undefined;
+    } else if (/^\d+$/.test(answer)) {
+      const idx: number = parseInt(answer, 10) - 1;
+      resolvedFinalIndex = idx >= 0 && idx < config.pages.length ? idx : undefined;
+    }
+  }
+  if (resolvedFinalIndex === undefined) {
+    // eslint-disable-next-line no-console
+    console.log("No matching page.");
+    return;
+  }
+  if (config.pages.length <= 1) {
+    // eslint-disable-next-line no-console
+    console.log("Cancelled: config must contain at least one page.");
+    return;
+  }
+  const removed = config.pages[resolvedFinalIndex];
+  const nextPages: import("./types.js").ApexPageConfig[] = config.pages.filter((_p, i) => i !== resolvedFinalIndex);
+  const nextConfig: import("./types.js").ApexConfig = { ...config, pages: nextPages };
+  await writeJsonFile<import("./types.js").ApexConfig>(absolutePath, nextConfig);
+  // eslint-disable-next-line no-console
+  console.log(`Removed page ${removed.path}.`);
 }
 
 function getSessionPaths(projectRoot: string): { readonly dir: string; readonly file: string } {
@@ -420,6 +572,10 @@ function printHelp(): void {
   lines.push(`${theme.cyan("console")} Console errors + runtime exceptions audit (headless Chrome)`);
   lines.push("");
   lines.push(theme.bold("Other commands"));
+  lines.push(`${theme.cyan("pages")} Print configured pages/routes from the current config`);
+  lines.push(`${theme.cyan("routes")} Alias for pages`);
+  lines.push(`${theme.cyan("add-page")} Add a page to apex.config.json (interactive)`);
+  lines.push(`${theme.cyan("rm-page [#|/path]")} Remove a page from apex.config.json (interactive)`);
   lines.push(`${theme.cyan("clean")} Remove ApexAuditor artifacts (reports/cache and optionally config)`);
   lines.push(`${theme.cyan("uninstall")} Remove .apex-auditor and the current config file`);
   lines.push(`${theme.cyan("open")} Open the last HTML report (or .apex-auditor/report.html)`);
@@ -489,6 +645,10 @@ function createCompleter(): (line: string) => readonly [readonly string[], strin
     "links",
     "headers",
     "console",
+    "pages",
+    "routes",
+    "add-page",
+    "rm-page",
     "clean",
     "uninstall",
     "open",
@@ -755,6 +915,10 @@ async function handleShellCommand(projectRoot: string, session: ShellSessionStat
   if (command.id === "exit" || command.id === "quit") {
     return { session, shouldExit: true };
   }
+  if (command.id === "pages" || command.id === "routes") {
+    await printConfiguredPages(session);
+    return { session, shouldExit: false };
+  }
   if (command.id === "audit") {
     const nextSession: ShellSessionState = await runAuditFromShell(projectRoot, session, command.args);
     return { session: nextSession, shouldExit: false };
@@ -921,6 +1085,26 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
         return;
       }
       let command: ParsedShellCommand = parseShellCommand(line);
+      const isEditCommand: boolean = command.id === "add-page" || command.id === "rm-page";
+      if (isEditCommand && process.stdin.isTTY) {
+        suppressInput = true;
+        rl.pause();
+        try {
+          if (command.id === "add-page") {
+            await addPageInteractive(rl, session);
+          } else {
+            await removePageInteractive(rl, session, command.args);
+          }
+        } finally {
+          if (!rlClosed) {
+            rl.resume();
+            suppressInput = false;
+            rl.setPrompt(buildPrompt(session));
+            rl.prompt();
+          }
+        }
+        return;
+      }
       if (command.id === "clean" && !command.args.includes("--yes") && !command.args.includes("-y") && process.stdin.isTTY) {
         const targets: readonly string[] = resolveCleanTargets({ projectRoot, session, args: command.args });
         const ok: boolean = await confirmCleanInShell({ rl, targets });
@@ -973,12 +1157,11 @@ export async function runShellCli(argv: readonly string[]): Promise<void> {
         // eslint-disable-next-line no-console
         console.log("Starting config wizard...");
         await runWizardInShell();
-        if (!rlClosed) {
-          // eslint-disable-next-line no-console
-          console.log(`Ready. Next: ${theme.cyan("measure")} or ${theme.cyan("audit")}.`);
-          rl.setPrompt(buildPrompt(session));
-          rl.prompt();
-        }
+        // eslint-disable-next-line no-console
+        console.log(`Ready. Next: ${theme.cyan("measure")} or ${theme.cyan("audit")}.`);
+        // Force readline recreation by closing current instance - this ensures
+        // the shell stays alive after the wizard completes even if prompts closed stdin
+        rl.close();
         return;
       }
       rl.pause();

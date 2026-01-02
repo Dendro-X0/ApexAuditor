@@ -86,7 +86,14 @@ function isTransientLighthouseError(error: unknown): boolean {
     message.includes("top level events") ||
     message.includes("CDP") ||
     message.includes("disconnected") ||
-    message.includes("ApexAuditor timeout")
+    message.includes("ApexAuditor timeout") ||
+    // Additional transient errors for better retry handling
+    message.includes("WebSocket") ||
+    message.includes("webSocket") ||
+    message.includes("fetch failed") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("ECONNRESET") ||
+    message.includes("socket hang up")
   );
 }
 
@@ -114,6 +121,11 @@ async function createChromeSession(): Promise<ChromeSession> {
       "--safebrowsing-disable-auto-update",
       "--password-store=basic",
       "--use-mock-keychain",
+      // Stability flags for parallel runs
+      "--disable-hang-monitor",
+      "--disable-ipc-flooding-protection",
+      "--disable-domain-reliability",
+      "--disable-component-update",
     ],
   });
   return {
@@ -314,6 +326,7 @@ function send(message: WorkerResponseMessage): void {
 
 async function main(): Promise<void> {
   const maxRetries = 3;
+  // Recycle Chrome periodically to prevent memory leaks
   const maxTasksPerChrome = 10;
   const sessionRef: ChromeSessionRef = { session: await createChromeSession() };
   let tasksSinceChromeStart = 0;
@@ -337,7 +350,7 @@ async function main(): Promise<void> {
       try {
         await sessionRef.session.close();
       } catch {
-        return;
+        // Ignore close errors
       }
       sessionRef.session = await createChromeSession();
       tasksSinceChromeStart = 0;

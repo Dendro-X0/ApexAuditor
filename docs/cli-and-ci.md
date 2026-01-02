@@ -24,6 +24,9 @@ Inside the shell:
 - `headers`
 - `console`
 - `open`
+- `pages` / `routes`
+- `add-page`
+- `rm-page`
 - `init`
 - `config <path>`
 
@@ -32,7 +35,7 @@ Notes:
 - `init` will attempt to detect your project type from `package.json`.
 - In monorepos, `init` can scan `apps/*` and `packages/*` and prompt you to choose which app/package to configure.
 - `init` can auto-discover routes from the filesystem and top-up from `robots.txt`/`sitemap.xml`.
-- You can optionally filter detected routes with include/exclude patterns and still add manual routes.
+- You can optionally filter detected routes with include/exclude patterns and still add manual routes. For larger route sets, the wizard may default filtering to **Yes** and prefill common excludes (framework-specific).
 - Static HTML projects can be detected from HTML files under `dist/`, `build/`, `out/`, `public/`, and `src/`.
 - If you use a localhost base URL (e.g. `http://localhost:3000`), ensure the dev server port matches the project you are configuring to avoid overwrites/conflicts when multiple projects are running.
 - Confirmation prompts default to **Yes** on Enter (e.g. overwrite).
@@ -72,12 +75,9 @@ Exit codes:
 - `1`: failure (runtime error or budgets)
 - `130`: cancelled (Ctrl+C). In shell mode, Esc-cancel returns you to the prompt.
 
-## Known issues (v0.3.6)
+## Known issues
 
-- **Shell exits after init wizard**: in some environments, the process may exit after completing `init` in shell mode. Workaround: run `apex-auditor init` outside the shell, then re-run `apex-auditor shell`.
 - **Large-run Lighthouse stability**: very large audits (many page/device combinations) may show higher score variance than manual Lighthouse runs and can intermittently hit worker/Chrome disconnects. Workaround: reduce parallelism (`--stable`) and retry.
-
-The target for a truly stable release is after v0.3.7.
 
 ### `measure`
 

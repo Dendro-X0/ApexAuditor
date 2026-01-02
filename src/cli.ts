@@ -1331,15 +1331,17 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
   const plannedRuns: number = overviewSample.config.runs ?? 1;
   const plannedSteps: number = plannedCombos * plannedRuns;
   const LARGE_RUN_COMBOS_THRESHOLD: number = 76;
-  const LARGE_RUN_PARALLEL_CAP: number = 2;
+  const LARGE_RUN_PARALLEL_CAP: number = 4;
   const usingDefaultParallel: boolean = args.parallelOverride === undefined && presetParallel === undefined && config.parallel === undefined;
-  const autoStableLargeRun: boolean = plannedCombos >= LARGE_RUN_COMBOS_THRESHOLD && !args.stable && usingDefaultParallel;
+  const isLargeRun: boolean = plannedCombos >= LARGE_RUN_COMBOS_THRESHOLD;
+  const autoStableLargeRun: boolean = isLargeRun && !args.stable && usingDefaultParallel;
   const resolvedConfigForRun: ApexConfig = autoStableLargeRun
     ? { ...overviewSample.config, parallel: Math.min(overviewSample.config.parallel ?? DEFAULT_PARALLEL, LARGE_RUN_PARALLEL_CAP) }
     : overviewSample.config;
   const maxSteps: number = args.maxSteps ?? DEFAULT_MAX_STEPS;
   const maxCombos: number = args.maxCombos ?? DEFAULT_MAX_COMBOS;
   const isTty: boolean = typeof process !== "undefined" && process.stdout?.isTTY === true;
+  const LARGE_RUN_HINT_COMBOS_THRESHOLD: number = 40;
   const exceeds: boolean = plannedSteps > maxSteps || plannedCombos > maxCombos;
   const useColor: boolean = shouldUseColor(args.ci, args.colorMode);
   if (args.plan) {
@@ -1356,15 +1358,9 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
     });
     return;
   }
-  if (isTty && !args.ci && !args.jsonOutput) {
-    const tipLines: string[] = [
-      "Tip: use --plan to preview run size before starting.",
-      "Note: runs-per-combo is always 1; rerun the same command to compare results.",
-      "If parallel mode flakes (worker disconnects), retry with --stable (forces parallel=1).",
-    ];
+  if (isTty && !args.ci && !args.jsonOutput && plannedCombos >= LARGE_RUN_HINT_COMBOS_THRESHOLD) {
     // eslint-disable-next-line no-console
-    console.log(boxifyWithSeparators(tipLines));
-    printDivider();
+    console.log(`Tip: large run (${plannedCombos} combos). Use --plan to preview, and retry with --stable if parallel mode flakes.`);
   }
   if (autoStableLargeRun && isTty && !args.ci && !args.jsonOutput) {
     // eslint-disable-next-line no-console
@@ -1441,17 +1437,14 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
       showParallel: args.showParallel,
       onlyCategories,
       signal: abortController.signal,
-      onAfterWarmUp: stopSpinner,
+      onAfterWarmUp: startAuditSpinner,
       onProgress: ({ completed, total, path, device, etaMs }) => {
         if (!process.stdout.isTTY) {
           return;
         }
         const etaText: string = etaMs !== undefined ? ` | ETA ${formatEtaText(etaMs)}` : "";
-        const message: string = `* Running audit (Lighthouse) page ${completed}/${total} — ${path} [${device}]${etaText}`;
-        const padded: string = message.padEnd(lastProgressLine?.length ?? message.length, " ");
-        process.stdout.write(`\r${padded}`);
-        lastProgressLine = padded;
-        updateSpinnerMessage(`Running audit (Lighthouse) page ${completed}/${total}`);
+        startAuditSpinner();
+        updateSpinnerMessage(`Running audit (Lighthouse) page ${completed}/${total} — ${path} [${device}]${etaText}`);
       },
     });
   } catch (error: unknown) {

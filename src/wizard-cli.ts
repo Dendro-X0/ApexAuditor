@@ -153,13 +153,13 @@ const pageQuestions: readonly PromptObject[] = [
 const addFirstPageQuestion: PromptObject = {
   type: "confirm",
   name: "value",
-  message: "Add your first page to audit?",
+  message: "No pages were auto-detected. Add a page to audit now? (You can always edit apex.config.json later)",
   initial: true,
 };
 const addMorePagesQuestion: PromptObject = {
   type: "confirm",
   name: "value",
-  message: "Add another page to audit?",
+  message: "Add another page to audit? (Optional — you can edit apex.config.json later)",
   initial: false,
 };
 const projectRootQuestion: PromptObject = {
@@ -203,6 +203,42 @@ const routeFilterQuestions: readonly PromptObject[] = [
     initial: "",
   },
 ];
+
+const ROUTE_FILTER_DEFAULT_ON_THRESHOLD: number = 15;
+
+function buildSuggestedExcludePatterns(profile: ProjectProfileId): readonly string[] {
+  if (profile === "next") {
+    return ["/_next/*", "/api/*"];
+  }
+  if (profile === "nuxt") {
+    return ["/__nuxt/*", "/api/*"];
+  }
+  if (profile === "sveltekit") {
+    return ["/__data.json*", "/api/*"];
+  }
+  if (profile === "remix") {
+    return ["/api/*"];
+  }
+  return [];
+}
+
+function buildRouteFilterQuestions(params: { readonly profile: ProjectProfileId; readonly suggestedExclude: readonly string[] }): readonly PromptObject[] {
+  const excludeInitial: string = params.suggestedExclude.join(",");
+  return [
+    {
+      type: "text",
+      name: "include",
+      message: "Include patterns (comma-separated, optional)",
+      initial: "",
+    },
+    {
+      type: "text",
+      name: "exclude",
+      message: "Exclude patterns (comma-separated, optional)",
+      initial: excludeInitial,
+    },
+  ];
+}
 
 function handleCancel(): true {
   console.log("Wizard cancelled. No config written.");
@@ -505,6 +541,10 @@ async function collectSinglePage(): Promise<ApexPageConfig> {
 
 async function collectPages(initialPages: readonly ApexPageConfig[]): Promise<ApexPageConfig[]> {
   const pages: ApexPageConfig[] = [...initialPages];
+  if (pages.length > 0) {
+    console.log("Tip: You can add/remove pages later by editing apex.config.json or re-running init.");
+    return pages;
+  }
   while (true) {
     const shouldAdd = await confirmAddPage(pages.length > 0);
     if (!shouldAdd) {
@@ -542,8 +582,13 @@ async function maybeDetectPages(params: { readonly profile: ProjectProfileId; re
     return [];
   }
   console.log(`Detected ${combined.length} route(s) using auto-discovery.`);
-  const shouldFilter: RouteFilterConfirmAnswer = await ask<RouteFilterConfirmAnswer>(routeFilterConfirmQuestion);
-  const filtered: readonly DetectedRoute[] = shouldFilter.value ? await filterDetectedRoutes(combined) : combined;
+  const suggestedExclude: readonly string[] = buildSuggestedExcludePatterns(params.profile);
+  const initialFilter: boolean = combined.length >= ROUTE_FILTER_DEFAULT_ON_THRESHOLD || suggestedExclude.length > 0;
+  const confirmQuestion: PromptObject = { ...routeFilterConfirmQuestion, initial: initialFilter };
+  const shouldFilter: RouteFilterConfirmAnswer = await ask<RouteFilterConfirmAnswer>(confirmQuestion);
+  const filtered: readonly DetectedRoute[] = shouldFilter.value
+    ? await filterDetectedRoutes({ routes: combined, profile: params.profile, suggestedExclude })
+    : combined;
   if (filtered.length === 0) {
     console.log("No routes remain after filtering. Add pages manually.");
     return [];
@@ -554,13 +599,14 @@ async function maybeDetectPages(params: { readonly profile: ProjectProfileId; re
   return selectDetectedRoutes(filtered);
 }
 
-async function filterDetectedRoutes(routes: readonly DetectedRoute[]): Promise<readonly DetectedRoute[]> {
-  const answers: RouteFilterAnswer = await ask<RouteFilterAnswer>(routeFilterQuestions);
+async function filterDetectedRoutes(params: { readonly routes: readonly DetectedRoute[]; readonly profile: ProjectProfileId; readonly suggestedExclude: readonly string[] }): Promise<readonly DetectedRoute[]> {
+  const questions: readonly PromptObject[] = buildRouteFilterQuestions({ profile: params.profile, suggestedExclude: params.suggestedExclude });
+  const answers: RouteFilterAnswer = await ask<RouteFilterAnswer>(questions);
   const includePatterns: readonly string[] = splitPatterns(answers.include);
   const excludePatterns: readonly string[] = splitPatterns(answers.exclude);
   const includeRegexes: readonly RegExp[] = includePatterns.map((pattern) => compileGlob(pattern));
   const excludeRegexes: readonly RegExp[] = excludePatterns.map((pattern) => compileGlob(pattern));
-  return routes.filter((route) => {
+  return params.routes.filter((route) => {
     const included: boolean = includeRegexes.length === 0 ? true : includeRegexes.some((regex) => regex.test(route.path));
     const excluded: boolean = excludeRegexes.some((regex) => regex.test(route.path));
     return included && !excluded;

@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.3.6 - Unreleased
+## 0.3.7 - 2026-01-02
+
+### Added
+- Shell: `pages`/`routes` to print configured pages.
+- Shell: `add-page`/`rm-page` to edit `apex.config.json` pages interactively.
+
+### Changed
+- Shell: improved stability so the process remains in a ready state after completing `init` and `audit`.
+- Init wizard: smarter route filtering defaults for large route sets, with framework-specific suggested excludes.
+- Audit: restored a running spinner animation during Lighthouse runs.
+- Audit: large runs show a one-line TTY hint suggesting `--plan` and `--stable`.
+- Lighthouse runner: improved stability for large projects and improved speed/accuracy.
+
+### Fixed
+- Shell: fixed cases where the process could exit after completing the init wizard or an audit run.
+
+## 0.3.6 - 2026-01-01
 
 ### Added
 - Init wizard: static HTML route discovery from `dist/`, `build/`, `out/`, `public/`, and `src/`.
@@ -9,14 +25,6 @@
 ### Changed
 - Init wizard: route selection no longer blocks manual additions when auto-discovery finds routes.
 - Init wizard: monorepo root selection improved for Nuxt/Remix/SvelteKit route discovery.
-
-### Known issues
-- Shell: in some environments the shell may exit after completing the init wizard.
-- Lighthouse: very large runs may show higher score variance than manual Lighthouse runs and may intermittently hit worker/Chrome disconnects.
-
-The target for a truly stable release is after v0.3.7.
-
-## 0.3.5 - 2026-01-01
 
 ### Added
 - Init wizard: detects project stack from `package.json` (Next.js, Nuxt, Remix/React Router, SvelteKit, SPA) and offers to use it.

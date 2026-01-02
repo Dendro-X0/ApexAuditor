@@ -469,6 +469,11 @@ async function createChromeSession(chromePort?: number): Promise<ChromeSession> 
       "--safebrowsing-disable-auto-update",
       "--password-store=basic",
       "--use-mock-keychain",
+      // Stability flags for parallel runs
+      "--disable-hang-monitor",
+      "--disable-ipc-flooding-protection",
+      "--disable-domain-reliability",
+      "--disable-component-update",
     ],
   });
   return {
@@ -917,7 +922,14 @@ function isTransientLighthouseError(error: unknown): boolean {
     message.includes("LanternError") ||
     message.includes("top level events") ||
     message.includes("CDP") ||
-    message.includes("disconnected")
+    message.includes("disconnected") ||
+    // Additional transient errors for better retry handling
+    message.includes("WebSocket") ||
+    message.includes("webSocket") ||
+    message.includes("fetch failed") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("ECONNRESET") ||
+    message.includes("socket hang up")
   );
 }
 
