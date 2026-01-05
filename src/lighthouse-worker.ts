@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import lighthouse from "lighthouse";
 import { launch as launchChrome } from "chrome-launcher";
-import type { ApexCategory, ApexDevice, ApexThrottlingMethod, CategoryScores, MetricValues, OpportunitySummary, PageDeviceSummary } from "./types.js";
+import type { ApexCategory, ApexDevice, ApexPageScope, ApexThrottlingMethod, CategoryScores, MetricValues, OpportunitySummary, PageDeviceSummary } from "./types.js";
 import { captureLighthouseArtifacts } from "./lighthouse-capture.js";
 
 type LighthouseLogLevel = "silent" | "error" | "info" | "verbose";
@@ -31,6 +31,7 @@ type AuditTask = {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly logLevel: LighthouseLogLevel;
   readonly throttlingMethod: ApexThrottlingMethod;
   readonly cpuSlowdownMultiplier: number;
@@ -182,6 +183,7 @@ async function runTaskWithRetry(task: AuditTask, sessionRef: ChromeSessionRef, m
           path: task.path,
           label: task.label,
           device: task.device,
+          pageScope: task.pageScope,
           port: sessionRef.session.port,
           logLevel: task.logLevel,
           throttlingMethod: task.throttlingMethod,
@@ -211,6 +213,7 @@ async function runSingleAudit(params: {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly port: number;
   readonly logLevel: LighthouseLogLevel;
   readonly throttlingMethod: ApexThrottlingMethod;
@@ -264,6 +267,7 @@ async function runSingleAudit(params: {
     path: params.path,
     label: params.label,
     device: params.device,
+    pageScope: params.pageScope,
     scores,
     metrics,
     opportunities,

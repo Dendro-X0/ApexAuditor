@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import type { ApexConfig } from "./types.js";
 import { loadConfig } from "./config.js";
 import { buildDevServerGuidanceLines } from "./dev-server-guidance.js";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -63,6 +65,13 @@ type LinksReport = {
 
 const NO_COLOR: boolean = Boolean(process.env.NO_COLOR) || process.env.CI === "true";
 const theme: UiTheme = new UiTheme({ noColor: NO_COLOR });
+
+type AiFinding = {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
+};
 
 function resolveParallelCount(params: { readonly requested?: number; readonly taskCount: number }): number {
   const requested: number | undefined = params.requested;
@@ -291,6 +300,33 @@ function isConnectionErrorMessage(message: string): boolean {
   return message.includes("ECONNREFUSED") || message.includes("ENOTFOUND") || message.includes("EAI_AGAIN") || message.includes("Timed out");
 }
 
+function buildAiFindings(report: LinksReport): readonly AiFinding[] {
+  const evidence = [{ kind: "file", path: ".apex-auditor/links.json" }] as const;
+  const findings: AiFinding[] = [];
+  findings.push({
+    title: "Discovery",
+    severity: report.discovered.truncated ? "warn" : "info",
+    details: [
+      `Discovered: ${report.discovered.total} (unique ${report.discovered.unique})${report.discovered.truncated ? " (truncated)" : ""}`,
+      `Broken: ${report.broken.length}`,
+    ],
+    evidence,
+  });
+  if (report.broken.length > 0) {
+    findings.push({
+      title: "Broken links (top 30)",
+      severity: "error",
+      details: report.broken.slice(0, 30).map((b) => {
+        const status: string = b.runtimeErrorMessage ? "err" : String(b.statusCode ?? 0);
+        const err: string = b.runtimeErrorMessage ? ` – ${b.runtimeErrorMessage}` : "";
+        return `${status} ${b.url}${err}`;
+      }),
+      evidence,
+    });
+  }
+  return findings;
+}
+
 export async function runLinksCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   stopSpinner();
   const args: LinksArgs = parseArgs(argv);
@@ -449,6 +485,31 @@ export async function runLinksCli(argv: readonly string[], options?: { readonly 
   const outputPath: string = resolve(outputDir, "links.json");
   await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, JSON.stringify(report, null, 2), "utf8");
+  await writeRunnerReports({
+    outputDir,
+    runner: "links",
+    generatedAt: new Date().toISOString(),
+    humanTitle: "ApexAuditor Links report",
+    humanSummaryLines: [
+      `Discovered: ${report.discovered.total}${report.discovered.truncated ? " (truncated)" : ""}`,
+      `Broken: ${report.broken.length}`,
+      `Parallel: ${parallel}`,
+      `Timeout: ${args.timeoutMs}ms`,
+    ],
+    artifacts: [{ label: "Links (JSON)", relativePath: "links.json" }],
+    aiMeta: {
+      configPath,
+      baseUrl: config.baseUrl,
+      sitemapUrl: args.sitemapUrl ? sitemapUrl : undefined,
+      resolvedParallel: parallel,
+      timeoutMs: args.timeoutMs,
+      maxUrls: args.maxUrls,
+      discovered: report.discovered,
+      brokenCount: report.broken.length,
+    },
+    aiFindings: buildAiFindings(report),
+  });
+  await writeArtifactsNavigation({ outputDir });
 
   if (args.jsonOutput) {
     // eslint-disable-next-line no-console

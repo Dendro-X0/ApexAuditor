@@ -13,7 +13,8 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "./webhooks.js": ["./src/webhooks.ts"]
+      "./webhooks.js": ["./src/webhooks.ts"],
+      "./quick-cli.js": ["./src/quick-cli.ts"]
     }
   },
   "include": ["src"]

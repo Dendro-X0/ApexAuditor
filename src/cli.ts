@@ -1,11 +1,14 @@
 import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { exec } from "node:child_process";
+import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { loadConfig } from "./config.js";
 import { buildDevServerGuidanceLines } from "./dev-server-guidance.js";
 import type { AxeResult, AxeSummary, AxeViolation } from "./accessibility-types.js";
 import { runAccessibilityAudit } from "./accessibility.js";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 import { startSpinner, stopSpinner, updateSpinnerMessage } from "./spinner.js";
 import { runAuditsForConfig } from "./lighthouse-runner.js";
 import { postJsonWebhook } from "./webhooks.js";
@@ -110,6 +113,51 @@ type SummaryPanelParams = {
   readonly previousSummary?: RunSummary;
 };
 
+function isPublicCombo(r: PageDeviceSummary): boolean {
+  return r.pageScope !== "requires-auth";
+}
+
+type IssueOffenderId = IssuesIndex["offenders"][number]["issueId"];
+
+type OffenderComboRef = IssuesIndex["offenders"][number]["combos"][number];
+
+function buildOffenderComboRef(params: {
+  readonly combo: PageDeviceSummary;
+  readonly artifacts?: IssuesIndex["failing"][number]["artifacts"];
+  readonly issuesPointer: string;
+  readonly diagnosticsLitePointer?: string;
+}): OffenderComboRef {
+  return {
+    label: params.combo.label,
+    path: params.combo.path,
+    device: params.combo.device,
+    pageScope: params.combo.pageScope,
+    artifactBaseName: buildArtifactBaseName({ label: params.combo.label, path: params.combo.path, device: params.combo.device }),
+    artifacts:
+      params.artifacts === undefined
+        ? undefined
+        : {
+            diagnosticsLiteRelPath: params.artifacts.diagnosticsLiteRelPath,
+            diagnosticsLitePath: params.artifacts.diagnosticsLitePath,
+            diagnosticsRelPath: params.artifacts.diagnosticsRelPath,
+            diagnosticsPath: params.artifacts.diagnosticsPath,
+            lhrRelPath: params.artifacts.lhrRelPath,
+            lhrPath: params.artifacts.lhrPath,
+          },
+    pointers: {
+      issuesPointer: params.issuesPointer,
+      diagnosticsLitePointer: params.diagnosticsLitePointer,
+    },
+  };
+}
+
+function buildIssuesPointerForCombo(combo: { readonly label: string; readonly path: string; readonly device: ApexDevice }, suffix: string): string {
+  const label: string = escapePointerValue(combo.label);
+  const path: string = escapePointerValue(combo.path);
+  const device: string = escapePointerValue(combo.device);
+  return `results[?(@.label==\"${label}\" && @.path==\"${path}\" && @.device==\"${device}\")].${suffix}`;
+}
+
 type RegressionLine = {
   readonly label: string;
   readonly path: string;
@@ -151,6 +199,13 @@ type AccessibilitySummary = {
   readonly impactCounts: AxeImpactCounts;
   readonly errored: number;
   readonly total: number;
+};
+
+type RunnerFindingLike = {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
 };
 
 type LiteOpportunity = {
@@ -288,6 +343,111 @@ type AiFixMinPacket = {
   readonly aggregates: AiFixPacket["aggregates"];
 };
 
+type AiLedgerSeverity = "red" | "yellow" | "info";
+
+type AiLedgerIssueKind =
+  | "runtime_error"
+  | "redirect_chain"
+  | "unused_javascript"
+  | "legacy_javascript"
+  | "render_blocking_resource"
+  | "critical_request_chain"
+  | "lcp_phases"
+  | "lcp_element"
+  | "bfcache_blocker";
+
+type AiLedgerEvidence = {
+  readonly artifactRelPath?: string;
+  readonly sourceRelPath: string;
+  readonly pointer: string;
+  readonly excerpt?: string;
+};
+
+type AiLedgerComboRef = {
+  readonly label: string;
+  readonly path: string;
+  readonly device: ApexDevice;
+};
+
+type AiLedgerComboKey = string;
+
+type AiLedgerIssueKey = string;
+
+type AiLedgerIssue = {
+  readonly id: string;
+  readonly kind: AiLedgerIssueKind;
+  readonly severity: AiLedgerSeverity;
+  readonly title: string;
+  readonly summary?: string;
+  readonly affected: readonly AiLedgerComboRef[];
+  readonly evidence: readonly AiLedgerEvidence[];
+};
+
+type AiLedgerFixPlanStep = {
+  readonly order: number;
+  readonly title: string;
+  readonly issueIds: readonly string[];
+  readonly rationale: string;
+  readonly verify: string;
+};
+
+type AiLedgerComboDelta = {
+  readonly comboKey: AiLedgerComboKey;
+  readonly label: string;
+  readonly path: string;
+  readonly device: ApexDevice;
+  readonly deltas: {
+    readonly performance?: number;
+    readonly lcpMs?: number;
+    readonly inpMs?: number;
+    readonly cls?: number;
+    readonly tbtMs?: number;
+  };
+};
+
+type AiLedgerOffender = {
+  readonly kind: AiLedgerIssueKind;
+  readonly key: string;
+  readonly severity: AiLedgerSeverity;
+  readonly affectedCombos: number;
+  readonly issueIds: readonly string[];
+  readonly evidence: readonly AiLedgerEvidence[];
+};
+
+type AiLedger = {
+  readonly generatedAt: string;
+  readonly instructions: string;
+  readonly meta: RunSummary["meta"];
+  readonly runtime: RuntimeMeta;
+  readonly targetScore: number;
+  readonly totals: IssuesIndex["totals"];
+  readonly regressions: readonly AiLedgerComboDelta[];
+  readonly improvements: readonly AiLedgerComboDelta[];
+  readonly combos: readonly {
+    readonly label: string;
+    readonly path: string;
+    readonly device: ApexDevice;
+    readonly scores: {
+      readonly performance?: number;
+      readonly accessibility?: number;
+      readonly bestPractices?: number;
+      readonly seo?: number;
+    };
+    readonly metrics: {
+      readonly lcpMs?: number;
+      readonly cls?: number;
+      readonly inpMs?: number;
+      readonly tbtMs?: number;
+    };
+    readonly runtimeErrorMessage?: string;
+  }[];
+  readonly comboIndex: Record<AiLedgerComboKey, AiLedger["combos"][number]>;
+  readonly issueIndex: Record<AiLedgerIssueKey, AiLedgerIssue>;
+  readonly issues: readonly AiLedgerIssue[];
+  readonly fixPlan: readonly AiLedgerFixPlanStep[];
+  readonly offenders: readonly AiLedgerOffender[];
+};
+
 type IssuesIndex = {
   readonly generatedAt: string;
   readonly targetScore: number;
@@ -299,10 +459,42 @@ type IssuesIndex = {
     readonly runtimeErrors: number;
   };
   readonly topIssues: readonly { readonly id: string; readonly title: string; readonly count: number; readonly totalMs: number }[];
+  readonly offenders: readonly {
+    readonly issueId:
+      | "unused-javascript"
+      | "legacy-javascript"
+      | "render-blocking-resources"
+      | "lcp-phases"
+      | "largest-contentful-paint-element"
+      | "bf-cache";
+    readonly title: string;
+    readonly offenderKey: string;
+    readonly affectedCombos: number;
+    readonly combos: readonly {
+      readonly label: string;
+      readonly path: string;
+      readonly device: ApexDevice;
+      readonly pageScope?: "public" | "requires-auth";
+      readonly artifactBaseName: string;
+      readonly artifacts?: {
+        readonly diagnosticsLiteRelPath?: string;
+        readonly diagnosticsLitePath?: string;
+        readonly diagnosticsRelPath?: string;
+        readonly diagnosticsPath?: string;
+        readonly lhrRelPath?: string;
+        readonly lhrPath?: string;
+      };
+      readonly pointers: {
+        readonly issuesPointer: string;
+        readonly diagnosticsLitePointer?: string;
+      };
+    }[];
+  }[];
   readonly failing: readonly {
     readonly label: string;
     readonly path: string;
     readonly device: ApexDevice;
+    readonly pageScope?: "public" | "requires-auth";
     readonly performance?: number;
     readonly accessibility?: number;
     readonly bestPractices?: number;
@@ -514,6 +706,665 @@ function buildAiFixPacket(params: { readonly summary: RunSummary; readonly issue
         chains: redirectChains,
       },
     },
+  };
+}
+
+function hashId(input: string): string {
+  return createHash("sha1").update(input).digest("hex").slice(0, 12);
+}
+
+function escapePointerValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\"/g, "\\\"");
+}
+
+function buildComboPointer(combo: AiLedgerComboRef): string {
+  const label: string = escapePointerValue(combo.label);
+  const path: string = escapePointerValue(combo.path);
+  const device: string = escapePointerValue(combo.device);
+  return `failing[?(@.label==\"${label}\" && @.path==\"${path}\" && @.device==\"${device}\")]`;
+}
+
+function buildComboKey(combo: AiLedgerComboRef): AiLedgerComboKey {
+  return `${combo.label}|${combo.path}|${combo.device}`;
+}
+
+function normalizeUrlKey(input: string): string {
+  try {
+    const u: URL = new URL(input);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    const withoutHash: string = input.split("#")[0] ?? input;
+    const withoutQuery: string = withoutHash.split("?")[0] ?? withoutHash;
+    return withoutQuery;
+  }
+}
+
+function buildOffenderKey(params: { readonly kind: AiLedgerIssueKind; readonly issueKey: string; readonly excerpt?: string }): string {
+  const raw: string = params.excerpt ?? params.issueKey;
+  if (params.kind === "unused_javascript" || params.kind === "legacy_javascript" || params.kind === "render_blocking_resource") {
+    return `${params.kind}|${normalizeUrlKey(raw)}`;
+  }
+  if (params.kind === "redirect_chain") {
+    return `${params.kind}|${raw.split("?").join("").split("#").join("")}`;
+  }
+  return `${params.kind}|${raw}`;
+}
+
+function escapeJsonPathString(input: string): string {
+  return escapePointerValue(input);
+}
+
+function buildDiagnosticsLiteAuditPointer(params: { readonly auditId: string; readonly itemUrl?: string }): string {
+  const auditId: string = escapeJsonPathString(params.auditId);
+  if (params.itemUrl === undefined) {
+    return `audits[?(@.id==\"${auditId}\")]`;
+  }
+  const url: string = escapeJsonPathString(params.itemUrl);
+  return `audits[?(@.id==\"${auditId}\")].details.items[?(@.url==\"${url}\")]`;
+}
+
+function buildAiLedger(params: {
+  readonly summary: RunSummary;
+  readonly previousSummary?: RunSummary;
+  readonly issues: IssuesIndex;
+  readonly runtime: RuntimeMeta;
+  readonly outputDir: string;
+  readonly targetScore: number;
+}): AiLedger {
+  const generatedAt: string = new Date().toISOString();
+  const sourceRelPath: string = "issues.json";
+  const addCombo = (combo: AiLedgerComboRef, list: AiLedgerComboRef[]): AiLedgerComboRef[] => {
+    const key: string = `${combo.label}|${combo.path}|${combo.device}`;
+    if (list.some((c) => `${c.label}|${c.path}|${c.device}` === key)) {
+      return list;
+    }
+    return [...list, combo];
+  };
+  const addEvidence = (evidence: AiLedgerEvidence, list: AiLedgerEvidence[]): AiLedgerEvidence[] => {
+    const key: string = `${evidence.sourceRelPath}|${evidence.pointer}|${evidence.artifactRelPath ?? ""}`;
+    if (list.some((e) => `${e.sourceRelPath}|${e.pointer}|${e.artifactRelPath ?? ""}` === key)) {
+      return list;
+    }
+    return [...list, evidence];
+  };
+  type MutableIssue = {
+    id: string;
+    kind: AiLedgerIssueKind;
+    severity: AiLedgerSeverity;
+    title: string;
+    summary?: string;
+    affected: AiLedgerComboRef[];
+    evidence: AiLedgerEvidence[];
+  };
+  const issueByKey: Map<string, MutableIssue> = new Map();
+  type OffenderAgg = {
+    kind: AiLedgerIssueKind;
+    key: string;
+    severity: AiLedgerSeverity;
+    affectedKeys: Set<string>;
+    issueIds: Set<string>;
+    evidence: AiLedgerEvidence[];
+  };
+  const offendersByKey: Map<string, OffenderAgg> = new Map();
+  const upsertWithDiagnosticsLite = (paramsUpsert: {
+    readonly issueKey: string;
+    readonly kind: AiLedgerIssueKind;
+    readonly severity: AiLedgerSeverity;
+    readonly title: string;
+    readonly summary?: string;
+    readonly combo: AiLedgerComboRef;
+    readonly issuesPointer: string;
+    readonly diagnosticsLiteRelPath?: string;
+    readonly diagnosticsPointer?: string;
+    readonly excerpt?: string;
+  }): void => {
+    upsert({
+      issueKey: paramsUpsert.issueKey,
+      kind: paramsUpsert.kind,
+      severity: paramsUpsert.severity,
+      title: paramsUpsert.title,
+      summary: paramsUpsert.summary,
+      combo: paramsUpsert.combo,
+      evidence: {
+        sourceRelPath,
+        pointer: paramsUpsert.issuesPointer,
+        artifactRelPath: paramsUpsert.diagnosticsLiteRelPath,
+        excerpt: paramsUpsert.excerpt,
+      },
+    });
+    if (paramsUpsert.diagnosticsLiteRelPath === undefined || paramsUpsert.diagnosticsPointer === undefined) {
+      return;
+    }
+    upsert({
+      issueKey: paramsUpsert.issueKey,
+      kind: paramsUpsert.kind,
+      severity: paramsUpsert.severity,
+      title: paramsUpsert.title,
+      summary: paramsUpsert.summary,
+      combo: paramsUpsert.combo,
+      evidence: {
+        sourceRelPath: paramsUpsert.diagnosticsLiteRelPath,
+        pointer: paramsUpsert.diagnosticsPointer,
+        excerpt: paramsUpsert.excerpt,
+      },
+    });
+  };
+  const upsert = (paramsUpsert: {
+    readonly issueKey: string;
+    readonly kind: AiLedgerIssueKind;
+    readonly severity: AiLedgerSeverity;
+    readonly title: string;
+    readonly summary?: string;
+    readonly combo: AiLedgerComboRef;
+    readonly evidence: AiLedgerEvidence;
+  }): void => {
+    const existing: MutableIssue | undefined = issueByKey.get(paramsUpsert.issueKey);
+    if (existing) {
+      existing.affected = addCombo(paramsUpsert.combo, existing.affected);
+      existing.evidence = addEvidence(paramsUpsert.evidence, existing.evidence);
+      if (existing.summary === undefined && paramsUpsert.summary !== undefined) {
+        existing.summary = paramsUpsert.summary;
+      }
+      if (existing.severity !== "red" && paramsUpsert.severity === "red") {
+        existing.severity = "red";
+      }
+      return;
+    }
+    const id: string = hashId(paramsUpsert.issueKey);
+    issueByKey.set(paramsUpsert.issueKey, {
+      id,
+      kind: paramsUpsert.kind,
+      severity: paramsUpsert.severity,
+      title: paramsUpsert.title,
+      summary: paramsUpsert.summary,
+      affected: [paramsUpsert.combo],
+      evidence: [paramsUpsert.evidence],
+    });
+  };
+  const failingIndexByComboKey: Map<string, number> = new Map();
+  params.issues.failing.forEach((f, index) => {
+    failingIndexByComboKey.set(`${f.label}|${f.path}|${f.device}`, index);
+  });
+  for (const combo of params.issues.failing) {
+    const comboKey: string = `${combo.label}|${combo.path}|${combo.device}`;
+    const index: number | undefined = failingIndexByComboKey.get(comboKey);
+    const comboRef: AiLedgerComboRef = { label: combo.label, path: combo.path, device: combo.device };
+    const basePointer: string = index === undefined ? buildComboPointer(comboRef) : buildComboPointer(comboRef);
+    const diagnosticsLiteRelPath: string | undefined = combo.artifacts?.diagnosticsLiteRelPath;
+    if (typeof combo.runtimeErrorMessage === "string" && combo.runtimeErrorMessage.length > 0) {
+      upsertWithDiagnosticsLite({
+        issueKey: `runtime_error|${combo.path}|${combo.device}|${combo.runtimeErrorMessage}`,
+        kind: "runtime_error",
+        severity: "red",
+        title: "Runtime error during audit",
+        summary: combo.runtimeErrorMessage.slice(0, 200),
+        combo: comboRef,
+        issuesPointer: `${basePointer}.runtimeErrorMessage`,
+        diagnosticsLiteRelPath,
+        excerpt: combo.runtimeErrorMessage.slice(0, 200),
+      });
+    }
+    const redirects = combo.hints?.redirects;
+    if (redirects && (Array.isArray(redirects.chain) || typeof redirects.overallSavingsMs === "number")) {
+      const chain: readonly string[] = redirects.chain ?? [];
+      const chainKey: string = chain.length > 0 ? chain.join(" -> ") : "(unknown)";
+      upsertWithDiagnosticsLite({
+        issueKey: `redirect_chain|${chainKey}`,
+        kind: "redirect_chain",
+        severity: "red",
+        title: "Redirect chain",
+        summary: typeof redirects.overallSavingsMs === "number" ? `Estimated savings: ${Math.round(redirects.overallSavingsMs)}ms` : undefined,
+        combo: comboRef,
+        issuesPointer: `${basePointer}.hints.redirects`,
+        diagnosticsLiteRelPath,
+        diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "redirects" }),
+        excerpt: chainKey.slice(0, 200),
+      });
+    }
+    const unused = combo.hints?.unusedJavascript;
+    if (unused && unused.files.length > 0) {
+      for (const file of unused.files.slice(0, 5)) {
+        const wastedBytes: number = Math.max(0, Math.floor(file.wastedBytes ?? 0));
+        const summary = wastedBytes > 0 ? `Wasted bytes: ${wastedBytes}` : undefined;
+        upsertWithDiagnosticsLite({
+          issueKey: `unused_javascript|${file.url}`,
+          kind: "unused_javascript",
+          severity: "yellow",
+          title: "Unused JavaScript",
+          summary,
+          combo: comboRef,
+          issuesPointer: `${basePointer}.hints.unusedJavascript.files`,
+          diagnosticsLiteRelPath,
+          diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "unused-javascript", itemUrl: file.url }),
+          excerpt: file.url.slice(0, 200),
+        });
+      }
+    }
+    const legacy = combo.hints?.legacyJavascript;
+    if (legacy && legacy.polyfills.length > 0) {
+      for (const poly of legacy.polyfills.slice(0, 5)) {
+        const wastedBytes: number = Math.max(0, Math.floor(poly.wastedBytes ?? 0));
+        const summary = wastedBytes > 0 ? `Wasted bytes: ${wastedBytes}` : undefined;
+        upsertWithDiagnosticsLite({
+          issueKey: `legacy_javascript|${poly.url}`,
+          kind: "legacy_javascript",
+          severity: "yellow",
+          title: "Legacy JavaScript / polyfills",
+          summary,
+          combo: comboRef,
+          issuesPointer: `${basePointer}.hints.legacyJavascript.polyfills`,
+          diagnosticsLiteRelPath,
+          diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "legacy-javascript", itemUrl: poly.url }),
+          excerpt: poly.url.slice(0, 200),
+        });
+      }
+    }
+    const rbr = combo.hints?.renderBlockingResources;
+    if (rbr && rbr.resources.length > 0) {
+      for (const res of rbr.resources.slice(0, 5)) {
+        const wastedMs: number = Math.max(0, Math.floor(res.wastedMs ?? 0));
+        const summary = wastedMs > 0 ? `Estimated savings: ${wastedMs}ms` : undefined;
+        upsertWithDiagnosticsLite({
+          issueKey: `render_blocking_resource|${res.url}`,
+          kind: "render_blocking_resource",
+          severity: "yellow",
+          title: "Render-blocking resource",
+          summary,
+          combo: comboRef,
+          issuesPointer: `${basePointer}.hints.renderBlockingResources.resources`,
+          diagnosticsLiteRelPath,
+          diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "render-blocking-resources", itemUrl: res.url }),
+          excerpt: res.url.slice(0, 200),
+        });
+      }
+    }
+    const crc = combo.hints?.criticalRequestChains;
+    if (crc && crc.chain.length > 0) {
+      const firstUrl: string = crc.chain[0]?.url ?? "(unknown)";
+      upsertWithDiagnosticsLite({
+        issueKey: `critical_request_chain|${combo.path}|${combo.device}|${firstUrl}`,
+        kind: "critical_request_chain",
+        severity: "yellow",
+        title: "Critical request chain",
+        summary: typeof crc.longestChainDurationMs === "number" ? `Chain duration: ${Math.round(crc.longestChainDurationMs)}ms` : undefined,
+        combo: comboRef,
+        issuesPointer: `${basePointer}.hints.criticalRequestChains`,
+        diagnosticsLiteRelPath,
+        diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "critical-request-chains" }),
+        excerpt: firstUrl.slice(0, 200),
+      });
+    }
+    const lcpPhases = combo.hints?.lcpPhases;
+    if (lcpPhases && Object.values(lcpPhases).some((v) => typeof v === "number" && v > 0)) {
+      upsertWithDiagnosticsLite({
+        issueKey: `lcp_phases|${combo.path}|${combo.device}`,
+        kind: "lcp_phases",
+        severity: "yellow",
+        title: "LCP phases breakdown",
+        combo: comboRef,
+        issuesPointer: `${basePointer}.hints.lcpPhases`,
+        diagnosticsLiteRelPath,
+        diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "lcp-phases" }),
+      });
+    }
+    const lcpElement = combo.hints?.lcpElement;
+    if (lcpElement && (typeof lcpElement.selector === "string" || typeof lcpElement.snippet === "string")) {
+      const excerpt: string | undefined = typeof lcpElement.selector === "string" ? lcpElement.selector.slice(0, 200) : lcpElement.snippet?.slice(0, 200);
+      upsertWithDiagnosticsLite({
+        issueKey: `lcp_element|${combo.path}|${combo.device}|${lcpElement.selector ?? lcpElement.snippet ?? ""}`,
+        kind: "lcp_element",
+        severity: "info",
+        title: "Largest Contentful Paint element",
+        combo: comboRef,
+        issuesPointer: `${basePointer}.hints.lcpElement`,
+        diagnosticsLiteRelPath,
+        diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "largest-contentful-paint-element" }),
+        excerpt,
+      });
+    }
+    const bfCache = combo.hints?.bfCache;
+    if (bfCache && bfCache.reasons.length > 0) {
+      upsertWithDiagnosticsLite({
+        issueKey: `bfcache_blocker|${bfCache.reasons.join("|")}`,
+        kind: "bfcache_blocker",
+        severity: "info",
+        title: "bfcache blocked",
+        summary: bfCache.reasons.slice(0, 5).join("; ").slice(0, 200),
+        combo: comboRef,
+        issuesPointer: `${basePointer}.hints.bfCache`,
+        diagnosticsLiteRelPath,
+        diagnosticsPointer: buildDiagnosticsLiteAuditPointer({ auditId: "bf-cache" }),
+      });
+    }
+  }
+  const previousByComboKey: Map<string, PageDeviceSummary> = new Map(
+    (params.previousSummary?.results ?? []).map((r) => [`${r.label}|${r.path}|${r.device}`, r]),
+  );
+  const deltasAll: readonly AiLedgerComboDelta[] = params.summary.results
+    .map((current): AiLedgerComboDelta | undefined => {
+      const key: string = `${current.label}|${current.path}|${current.device}`;
+      const prev: PageDeviceSummary | undefined = previousByComboKey.get(key);
+      if (prev === undefined) {
+        return undefined;
+      }
+      type MutableDeltas = {
+        performance?: number;
+        lcpMs?: number;
+        inpMs?: number;
+        cls?: number;
+        tbtMs?: number;
+      };
+      const deltas: MutableDeltas = {};
+      if (typeof current.scores.performance === "number" && typeof prev.scores.performance === "number") {
+        deltas.performance = current.scores.performance - prev.scores.performance;
+      }
+      if (typeof current.metrics.lcpMs === "number" && typeof prev.metrics.lcpMs === "number") {
+        deltas.lcpMs = current.metrics.lcpMs - prev.metrics.lcpMs;
+      }
+      if (typeof current.metrics.inpMs === "number" && typeof prev.metrics.inpMs === "number") {
+        deltas.inpMs = current.metrics.inpMs - prev.metrics.inpMs;
+      }
+      if (typeof current.metrics.cls === "number" && typeof prev.metrics.cls === "number") {
+        deltas.cls = current.metrics.cls - prev.metrics.cls;
+      }
+      if (typeof current.metrics.tbtMs === "number" && typeof prev.metrics.tbtMs === "number") {
+        deltas.tbtMs = current.metrics.tbtMs - prev.metrics.tbtMs;
+      }
+      const hasAnyDelta: boolean = Object.keys(deltas).length > 0;
+      if (!hasAnyDelta) {
+        return undefined;
+      }
+      return {
+        comboKey: buildComboKey({ label: current.label, path: current.path, device: current.device }),
+        label: current.label,
+        path: current.path,
+        device: current.device,
+        deltas,
+      };
+    })
+    .filter((x): x is AiLedgerComboDelta => x !== undefined);
+  const scoreRegressionRank = (d: AiLedgerComboDelta): number => {
+    const perf: number = d.deltas.performance ?? 0;
+    const lcp: number = d.deltas.lcpMs ?? 0;
+    const inp: number = d.deltas.inpMs ?? 0;
+    const cls: number = d.deltas.cls ?? 0;
+    const tbt: number = d.deltas.tbtMs ?? 0;
+    const perfPenalty: number = perf < 0 ? Math.abs(perf) * 20 : 0;
+    const lcpPenalty: number = lcp > 0 ? lcp / 100 : 0;
+    const inpPenalty: number = inp > 0 ? inp / 100 : 0;
+    const clsPenalty: number = cls > 0 ? cls * 1000 : 0;
+    const tbtPenalty: number = tbt > 0 ? tbt / 100 : 0;
+    return perfPenalty + lcpPenalty + inpPenalty + clsPenalty + tbtPenalty;
+  };
+  const scoreImprovementRank = (d: AiLedgerComboDelta): number => {
+    const perf: number = d.deltas.performance ?? 0;
+    const lcp: number = d.deltas.lcpMs ?? 0;
+    const inp: number = d.deltas.inpMs ?? 0;
+    const cls: number = d.deltas.cls ?? 0;
+    const tbt: number = d.deltas.tbtMs ?? 0;
+    const perfGain: number = perf > 0 ? perf * 20 : 0;
+    const lcpGain: number = lcp < 0 ? Math.abs(lcp) / 100 : 0;
+    const inpGain: number = inp < 0 ? Math.abs(inp) / 100 : 0;
+    const clsGain: number = cls < 0 ? Math.abs(cls) * 1000 : 0;
+    const tbtGain: number = tbt < 0 ? Math.abs(tbt) / 100 : 0;
+    return perfGain + lcpGain + inpGain + clsGain + tbtGain;
+  };
+  const regressions: readonly AiLedgerComboDelta[] = [...deltasAll]
+    .filter((d) => scoreRegressionRank(d) > 0)
+    .sort((a, b) => scoreRegressionRank(b) - scoreRegressionRank(a))
+    .slice(0, 10);
+  const improvements: readonly AiLedgerComboDelta[] = [...deltasAll]
+    .filter((d) => scoreImprovementRank(d) > 0)
+    .sort((a, b) => scoreImprovementRank(b) - scoreImprovementRank(a))
+    .slice(0, 10);
+  const combos: AiLedger["combos"] = params.summary.results.map((r) => ({
+    label: r.label,
+    path: r.path,
+    device: r.device,
+    scores: {
+      performance: r.scores.performance,
+      accessibility: r.scores.accessibility,
+      bestPractices: r.scores.bestPractices,
+      seo: r.scores.seo,
+    },
+    metrics: {
+      lcpMs: r.metrics.lcpMs,
+      cls: r.metrics.cls,
+      inpMs: r.metrics.inpMs,
+      tbtMs: r.metrics.tbtMs,
+    },
+    runtimeErrorMessage: r.runtimeErrorMessage,
+  }));
+  const comboIndex: Record<AiLedgerComboKey, AiLedger["combos"][number]> = combos.reduce((acc, combo) => {
+    const key: AiLedgerComboKey = buildComboKey({ label: combo.label, path: combo.path, device: combo.device });
+    return { ...acc, [key]: combo };
+  }, {} as Record<AiLedgerComboKey, AiLedger["combos"][number]>);
+  const instructions: string =
+    "Use fixPlan in order. Each step references issueIds which correspond to issues[].id. For each issue, use evidence[].sourceRelPath and evidence[].pointer to locate the exact source data (usually in issues.json). Heavy evidence is stored in diagnostics artifacts; prefer following artifactRelPath pointers instead of expanding large blobs. After applying fixes, re-run audit and compare summary.json to verify improvements.";
+  const issues: readonly AiLedgerIssue[] = [...issueByKey.values()]
+    .sort((a, b) => {
+      const severityRank = (s: AiLedgerSeverity): number => (s === "red" ? 0 : s === "yellow" ? 1 : 2);
+      const aR: number = severityRank(a.severity);
+      const bR: number = severityRank(b.severity);
+      if (aR !== bR) {
+        return aR - bR;
+      }
+      if (a.affected.length !== b.affected.length) {
+        return b.affected.length - a.affected.length;
+      }
+      return a.title.localeCompare(b.title);
+    })
+    .map((i) => ({
+      id: i.id,
+      kind: i.kind,
+      severity: i.severity,
+      title: i.title,
+      summary: i.summary,
+      affected: i.affected,
+      evidence: i.evidence,
+    }));
+  const issueIndex: Record<AiLedgerIssueKey, AiLedgerIssue> = issues.reduce((acc, issue) => {
+    return { ...acc, [issue.id]: issue };
+  }, {} as Record<AiLedgerIssueKey, AiLedgerIssue>);
+  for (const [issueKey, i] of issueByKey.entries()) {
+    const isOffenderKind: boolean =
+      i.kind === "unused_javascript" ||
+      i.kind === "legacy_javascript" ||
+      i.kind === "render_blocking_resource" ||
+      i.kind === "redirect_chain";
+    if (!isOffenderKind) {
+      continue;
+    }
+    const excerpt: string | undefined = i.evidence[0]?.excerpt;
+    const offenderKey: string = buildOffenderKey({ kind: i.kind, issueKey, excerpt });
+    const existing: OffenderAgg | undefined = offendersByKey.get(offenderKey);
+    const affectedKeys: Set<string> = new Set(i.affected.map((c) => buildComboKey(c)));
+    const evidence: AiLedgerEvidence[] = i.evidence.slice(0, 2);
+    if (!existing) {
+      offendersByKey.set(offenderKey, {
+        kind: i.kind,
+        key: offenderKey,
+        severity: i.severity,
+        affectedKeys,
+        issueIds: new Set([i.id]),
+        evidence,
+      });
+      continue;
+    }
+    existing.issueIds.add(i.id);
+    for (const k of affectedKeys) {
+      existing.affectedKeys.add(k);
+    }
+    for (const e of evidence) {
+      const eKey: string = `${e.sourceRelPath}|${e.pointer}|${e.artifactRelPath ?? ""}`;
+      if (!existing.evidence.some((x) => `${x.sourceRelPath}|${x.pointer}|${x.artifactRelPath ?? ""}` === eKey)) {
+        existing.evidence.push(e);
+      }
+    }
+    if (existing.severity !== "red" && i.severity === "red") {
+      existing.severity = "red";
+    }
+  }
+  const offenders: readonly AiLedgerOffender[] = [...offendersByKey.values()]
+    .map((o) => ({
+      kind: o.kind,
+      key: o.key,
+      severity: o.severity,
+      affectedCombos: o.affectedKeys.size,
+      issueIds: [...o.issueIds.values()],
+      evidence: o.evidence.slice(0, 2),
+    }))
+    .sort((a, b) => {
+      const severityRank = (s: AiLedgerSeverity): number => (s === "red" ? 0 : s === "yellow" ? 1 : 2);
+      const aS: number = severityRank(a.severity);
+      const bS: number = severityRank(b.severity);
+      if (aS !== bS) {
+        return aS - bS;
+      }
+      if (a.affectedCombos !== b.affectedCombos) {
+        return b.affectedCombos - a.affectedCombos;
+      }
+      return a.key.localeCompare(b.key);
+    })
+    .slice(0, 25);
+  const kindRank = (kind: AiLedgerIssueKind): number => {
+    switch (kind) {
+      case "runtime_error":
+        return 0;
+      case "redirect_chain":
+        return 1;
+      case "render_blocking_resource":
+        return 2;
+      case "unused_javascript":
+        return 3;
+      case "legacy_javascript":
+        return 4;
+      case "critical_request_chain":
+        return 5;
+      case "lcp_phases":
+        return 6;
+      case "lcp_element":
+        return 7;
+      case "bfcache_blocker":
+        return 8;
+      default:
+        return 99;
+    }
+  };
+  const severityRank = (severity: AiLedgerSeverity): number => (severity === "red" ? 0 : severity === "yellow" ? 1 : 2);
+  const fixPlanCandidates: readonly AiLedgerIssue[] = issues.filter((i) => i.severity !== "info").slice(0, 75);
+  const buckets: Map<AiLedgerIssueKind, AiLedgerIssue[]> = new Map();
+  for (const issue of fixPlanCandidates) {
+    const list: AiLedgerIssue[] = buckets.get(issue.kind) ?? [];
+    list.push(issue);
+    buckets.set(issue.kind, list);
+  }
+  const pickTopIssueIds = (kind: AiLedgerIssueKind, max: number): readonly string[] => {
+    const list: readonly AiLedgerIssue[] = buckets.get(kind) ?? [];
+    return [...list]
+      .sort((a, b) => b.affected.length - a.affected.length)
+      .slice(0, max)
+      .map((i) => i.id);
+  };
+  const planSteps: Omit<AiLedgerFixPlanStep, "order">[] = [];
+  const runtimeIds: readonly string[] = pickTopIssueIds("runtime_error", 10);
+  for (const id of runtimeIds) {
+    const issue: AiLedgerIssue | undefined = issues.find((i) => i.id === id);
+    if (!issue) {
+      continue;
+    }
+    planSteps.push({
+      title: issue.title,
+      issueIds: [id],
+      rationale: `${issue.severity.toUpperCase()} issue affecting ${issue.affected.length} combo(s).`,
+      verify: "Re-run audit and ensure runtimeErrorMessage is cleared for affected combos.",
+    });
+  }
+  const redirectIds: readonly string[] = pickTopIssueIds("redirect_chain", 10);
+  if (redirectIds.length > 0) {
+    planSteps.push({
+      title: "Remove redirect chains",
+      issueIds: redirectIds,
+      rationale: `RED issue category affecting ${redirectIds.length} redirect offender(s).`,
+      verify: "Re-run audit; redirect-chain issues should disappear and performance should increase.",
+    });
+  }
+  const rbrIds: readonly string[] = pickTopIssueIds("render_blocking_resource", 10);
+  if (rbrIds.length > 0) {
+    planSteps.push({
+      title: "Eliminate render-blocking resources",
+      issueIds: rbrIds,
+      rationale: `YELLOW issue category affecting ${rbrIds.length} resource offender(s).`,
+      verify: "Re-run audit; render-blocking savings should drop and LCP/TBT should improve.",
+    });
+  }
+  const unusedIds: readonly string[] = pickTopIssueIds("unused_javascript", 10);
+  if (unusedIds.length > 0) {
+    planSteps.push({
+      title: "Reduce unused JavaScript",
+      issueIds: unusedIds,
+      rationale: `YELLOW issue category affecting ${unusedIds.length} script offender(s).`,
+      verify: "Re-run audit; unused JS bytes should drop and performance should increase.",
+    });
+  }
+  const legacyIds: readonly string[] = pickTopIssueIds("legacy_javascript", 10);
+  if (legacyIds.length > 0) {
+    planSteps.push({
+      title: "Remove legacy JavaScript / polyfills",
+      issueIds: legacyIds,
+      rationale: `YELLOW issue category affecting ${legacyIds.length} polyfill offender(s).`,
+      verify: "Re-run audit; legacy JS bytes should drop and performance should increase.",
+    });
+  }
+  const remaining: readonly AiLedgerIssue[] = fixPlanCandidates
+    .filter((i) =>
+      i.kind !== "runtime_error" &&
+      i.kind !== "redirect_chain" &&
+      i.kind !== "render_blocking_resource" &&
+      i.kind !== "unused_javascript" &&
+      i.kind !== "legacy_javascript",
+    )
+    .sort((a, b) => {
+      const aS: number = severityRank(a.severity);
+      const bS: number = severityRank(b.severity);
+      if (aS !== bS) {
+        return aS - bS;
+      }
+      const aK: number = kindRank(a.kind);
+      const bK: number = kindRank(b.kind);
+      if (aK !== bK) {
+        return aK - bK;
+      }
+      return b.affected.length - a.affected.length;
+    })
+    .slice(0, 20);
+  for (const issue of remaining) {
+    planSteps.push({
+      title: issue.title,
+      issueIds: [issue.id],
+      rationale: `${issue.severity.toUpperCase()} issue affecting ${issue.affected.length} combo(s).`,
+      verify: "Re-run audit; relevant diagnostics should improve.",
+    });
+  }
+  const fixPlan: readonly AiLedgerFixPlanStep[] = planSteps
+    .map((step, index) => ({ ...step, order: index + 1 }))
+    .slice(0, 25);
+
+  return {
+    generatedAt,
+    instructions,
+    meta: params.summary.meta,
+    runtime: params.runtime,
+    targetScore: params.targetScore,
+    totals: params.issues.totals,
+    regressions,
+    improvements,
+    combos,
+    comboIndex,
+    issueIndex,
+    issues,
+    fixPlan,
+    offenders,
   };
 }
 
@@ -830,6 +1681,53 @@ function buildAccessibilityIssuesPanel(results: readonly AxeResult[], useColor: 
     }
   }
   return renderPanel({ title: theme.bold("Accessibility (top issues)"), lines });
+}
+
+function buildAccessibilityRunnerFindings(summary: AxeSummary): readonly RunnerFindingLike[] {
+  const aggregated: AccessibilitySummary = summariseAccessibility(summary);
+  const evidence = [{ kind: "file", path: ".apex-auditor/accessibility-summary.json" }] as const;
+  const findings: RunnerFindingLike[] = [];
+  const impactLines: readonly string[] = [
+    `critical: ${aggregated.impactCounts.critical}`,
+    `serious: ${aggregated.impactCounts.serious}`,
+    `moderate: ${aggregated.impactCounts.moderate}`,
+    `minor: ${aggregated.impactCounts.minor}`,
+    `errored: ${aggregated.errored}/${aggregated.total}`,
+  ];
+  findings.push({
+    title: "Impact counts",
+    severity: aggregated.impactCounts.critical > 0 || aggregated.impactCounts.serious > 0 ? "error" : "info",
+    details: impactLines,
+    evidence,
+  });
+  const top: readonly AxeResult[] = [...summary.results]
+    .filter((r) => !r.runtimeErrorMessage)
+    .sort((a, b) => b.violations.length - a.violations.length)
+    .slice(0, 5);
+  if (top.length > 0) {
+    const lines: string[] = [];
+    for (const r of top) {
+      const sample: readonly AxeViolation[] = selectTopViolations(r, 3);
+      const sampleTitles: readonly string[] = sample.map((v) => v.help ?? v.id);
+      lines.push(`${r.label} ${r.path} [${r.device}] – ${r.violations.length} violations: ${sampleTitles.join(" | ")}`);
+    }
+    findings.push({
+      title: "Worst pages (top 5 by violation count)",
+      severity: "warn",
+      details: lines,
+      evidence,
+    });
+  }
+  const errored: readonly AxeResult[] = summary.results.filter((r) => typeof r.runtimeErrorMessage === "string" && r.runtimeErrorMessage.length > 0).slice(0, 10);
+  if (errored.length > 0) {
+    findings.push({
+      title: "Errored pages",
+      severity: "error",
+      details: errored.map((r) => `${r.label} ${r.path} [${r.device}] – ${r.runtimeErrorMessage ?? ""}`),
+      evidence,
+    });
+  }
+  return findings;
 }
 
 function severityBackground(score: number | undefined): string {
@@ -2178,6 +3076,15 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
   });
   await writeJsonWithOptionalGzip(resolve(outputDir, "issues.json"), issues);
   const runtime: RuntimeMeta = buildRuntimeMeta({ config: resolvedConfigForRun, captureLevel, chromePort: resolvedConfigForRun.chromePort });
+  const aiLedger: AiLedger = buildAiLedger({
+    summary,
+    previousSummary,
+    issues,
+    runtime,
+    outputDir,
+    targetScore: DEFAULT_TARGET_SCORE,
+  });
+  await writeJsonWithOptionalGzip(resolve(outputDir, "ai-ledger.json"), aiLedger, { pretty: false });
   if (!args.noAiFix) {
     const aiFix: AiFixPacket = buildAiFixPacket({ summary, issues, targetScore: DEFAULT_TARGET_SCORE, runtime });
     await writeJsonWithOptionalGzip(resolve(outputDir, "ai-fix.json"), aiFix, { pretty: false });
@@ -2187,6 +3094,8 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
   }
   const plan: AuditPlan = buildPlanJson({ summary, issues, targetScore: DEFAULT_TARGET_SCORE });
   await writeJsonWithOptionalGzip(resolve(outputDir, "plan.json"), plan);
+  const pwa: PwaReport = await buildPwaReport({ summary, outputDir, captureLevel });
+  await writeJsonWithOptionalGzip(resolve(outputDir, "pwa.json"), pwa);
   const markdown: string = buildMarkdown(summary);
   await writeFile(resolve(outputDir, "summary.md"), markdown, "utf8");
   const html: string = buildHtmlReport(summary);
@@ -2245,8 +3154,29 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
     });
     accessibilitySummaryPath = resolve(outputDir, "accessibility-summary.json");
     await writeFile(accessibilitySummaryPath, JSON.stringify(accessibilitySummary, null, 2), "utf8");
+    await writeRunnerReports({
+      outputDir,
+      runner: "accessibility",
+      generatedAt: new Date().toISOString(),
+      humanTitle: "ApexAuditor Accessibility report",
+      humanSummaryLines: [
+        `Combos: ${accessibilitySummary.meta.comboCount}`,
+        `Elapsed: ${Math.round(accessibilitySummary.meta.elapsedMs / 1000)}s`,
+      ],
+      artifacts: [
+        { label: "Accessibility summary (JSON)", relativePath: "accessibility-summary.json" },
+        { label: "Accessibility artifacts", relativePath: "accessibility/" },
+      ],
+      aiMeta: {
+        configPath,
+        comboCount: accessibilitySummary.meta.comboCount,
+        elapsedMs: accessibilitySummary.meta.elapsedMs,
+      },
+      aiFindings: buildAccessibilityRunnerFindings(accessibilitySummary),
+    });
     accessibilityAggregated = accessibilitySummary === undefined ? undefined : summariseAccessibility(accessibilitySummary);
   }
+  await writeArtifactsNavigation({ outputDir });
   // Open HTML report in browser if requested
   if (args.openReport) {
     openInBrowser(reportPath);
@@ -3386,6 +4316,40 @@ type LhrLike = {
   readonly audits?: unknown;
 };
 
+type PwaAuditStatus = "pass" | "fail" | "not-applicable" | "informative" | "unknown";
+
+type PwaAuditFinding = {
+  readonly auditId: string;
+  readonly title?: string;
+  readonly status: PwaAuditStatus;
+  readonly score?: number;
+  readonly scoreDisplayMode?: string;
+  readonly description?: string;
+};
+
+type PwaComboFinding = {
+  readonly label: string;
+  readonly path: string;
+  readonly device: ApexDevice;
+  readonly pageScope?: "public" | "requires-auth";
+  readonly artifactBaseName: string;
+  readonly artifacts?: {
+    readonly diagnosticsLiteRelPath: string;
+    readonly diagnosticsLitePointerByAuditId: Record<string, string>;
+  };
+  readonly audits: readonly PwaAuditFinding[];
+};
+
+type PwaReport = {
+  readonly generatedAt: string;
+  readonly meta: {
+    readonly comboCount: number;
+    readonly auditedComboCount: number;
+    readonly captureLevel: "diagnostics" | "lhr" | undefined;
+  };
+  readonly combos: readonly PwaComboFinding[];
+};
+
 type ComboHints = NonNullable<IssuesIndex["failing"][number]["hints"]>;
 
 function toNumber(value: unknown): number | undefined {
@@ -3399,6 +4363,130 @@ function toString(value: unknown): string | undefined {
 function getAudit(lite: DiagnosticsLiteFile, id: string): DiagnosticsLiteAudit | undefined {
   const audits: readonly DiagnosticsLiteAudit[] = Array.isArray(lite.audits) ? lite.audits : [];
   return audits.find((a) => a.id === id);
+}
+
+function toPwaStatusFromScoreDisplayMode(mode: string | undefined, score: number | undefined): PwaAuditStatus {
+  if (mode === "notApplicable") {
+    return "not-applicable";
+  }
+  if (mode === "informative") {
+    return "informative";
+  }
+  if (mode === "manual") {
+    return "informative";
+  }
+  if (mode === "error") {
+    return "unknown";
+  }
+  if (mode === "binary") {
+    if (score === 1) {
+      return "pass";
+    }
+    if (score === 0) {
+      return "fail";
+    }
+    return "unknown";
+  }
+  if (typeof score === "number") {
+    return score >= 0.9 ? "pass" : "fail";
+  }
+  return "unknown";
+}
+
+function buildPwaAuditFinding(audit: DiagnosticsLiteAudit | undefined): PwaAuditFinding | undefined {
+  if (!audit) {
+    return undefined;
+  }
+  const score: number | undefined = typeof audit.score === "number" ? audit.score : undefined;
+  const scoreDisplayMode: string | undefined = typeof audit.scoreDisplayMode === "string" ? audit.scoreDisplayMode : undefined;
+  return {
+    auditId: audit.id,
+    title: typeof audit.title === "string" ? audit.title : undefined,
+    status: toPwaStatusFromScoreDisplayMode(scoreDisplayMode, score),
+    score,
+    scoreDisplayMode,
+    description: typeof (audit as unknown as { readonly description?: unknown }).description === "string"
+      ? String((audit as unknown as { readonly description?: unknown }).description)
+      : undefined,
+  };
+}
+
+async function buildPwaReport(params: {
+  readonly summary: RunSummary;
+  readonly outputDir: string;
+  readonly captureLevel: "diagnostics" | "lhr" | undefined;
+}): Promise<PwaReport> {
+  const generatedAt: string = new Date().toISOString();
+  if (params.captureLevel === undefined) {
+    return {
+      generatedAt,
+      meta: { comboCount: params.summary.results.length, auditedComboCount: 0, captureLevel: params.captureLevel },
+      combos: [],
+    };
+  }
+  const diagnosticsLiteDir: string = resolve(params.outputDir, "lighthouse-artifacts", "diagnostics-lite");
+  const PWA_AUDIT_IDS: readonly string[] = [
+    "is-on-https",
+    "service-worker",
+    "works-offline",
+    "installable-manifest",
+    "splash-screen",
+    "themed-omnibox",
+    "viewport",
+    "content-width",
+    "offline-start-url",
+    "redirects-http",
+  ];
+  const combos: PwaComboFinding[] = [];
+  let auditedComboCount: number = 0;
+  for (const r of params.summary.results) {
+    const baseName: string = buildArtifactBaseName({ label: r.label, path: r.path, device: r.device });
+    const diagnosticsLitePath: string = resolve(diagnosticsLiteDir, `${baseName}.json`);
+    let lite: DiagnosticsLiteFile | undefined;
+    try {
+      const raw: string = await readFile(diagnosticsLitePath, "utf8");
+      const parsed: unknown = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object") {
+        lite = parsed as DiagnosticsLiteFile;
+      }
+    } catch {
+      lite = undefined;
+    }
+    if (!lite) {
+      continue;
+    }
+    const findings: PwaAuditFinding[] = [];
+    const pointerByAuditId: Record<string, string> = {};
+    for (const id of PWA_AUDIT_IDS) {
+      const finding: PwaAuditFinding | undefined = buildPwaAuditFinding(getAudit(lite, id));
+      if (!finding) {
+        continue;
+      }
+      findings.push(finding);
+      pointerByAuditId[id] = buildDiagnosticsLiteAuditPointer({ auditId: id });
+    }
+    if (findings.length === 0) {
+      continue;
+    }
+    auditedComboCount += 1;
+    combos.push({
+      label: r.label,
+      path: r.path,
+      device: r.device,
+      pageScope: r.pageScope,
+      artifactBaseName: baseName,
+      artifacts: {
+        diagnosticsLiteRelPath: join("lighthouse-artifacts", "diagnostics-lite", `${baseName}.json`),
+        diagnosticsLitePointerByAuditId: pointerByAuditId,
+      },
+      audits: findings,
+    });
+  }
+  return {
+    generatedAt,
+    meta: { comboCount: params.summary.results.length, auditedComboCount, captureLevel: params.captureLevel },
+    combos,
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -3913,10 +5001,18 @@ function buildIssuesIndex(params: {
   const generatedAt: string = new Date().toISOString();
   const counts = { red: 0, yellow: 0, green: 0, runtimeErrors: 0 };
   const issueAgg: Map<string, { title: string; count: number; totalMs: number }> = new Map();
+  type OffenderAgg = {
+    readonly issueId: IssueOffenderId;
+    readonly title: string;
+    offenderKey: string;
+    combos: OffenderComboRef[];
+  };
+  const offenders: Map<string, OffenderAgg> = new Map();
   const failing: {
     readonly label: string;
     readonly path: string;
     readonly device: ApexDevice;
+    readonly pageScope?: "public" | "requires-auth";
     readonly performance?: number;
     readonly accessibility?: number;
     readonly bestPractices?: number;
@@ -3927,7 +5023,8 @@ function buildIssuesIndex(params: {
     readonly artifacts?: IssuesIndex["failing"][number]["artifacts"];
     readonly hints?: IssuesIndex["failing"][number]["hints"];
   }[] = [];
-  for (const r of params.summary.results) {
+  const scored: readonly PageDeviceSummary[] = params.summary.results.filter(isPublicCombo);
+  for (const r of scored) {
     const p: number | undefined = r.scores.performance;
     if (typeof p === "number") {
       if (p >= 90) counts.green += 1;
@@ -3973,10 +5070,117 @@ function buildIssuesIndex(params: {
               lhrRelPath: params.captureLevel === "lhr" ? lhrRel : undefined,
             };
       const hints: ComboHints | undefined = params.hintsByBaseName?.get(baseName)?.hints;
+      if (hints !== undefined) {
+        const unused = hints.unusedJavascript;
+        if (unused && unused.files.length > 0) {
+          for (const file of unused.files) {
+            const key: string = `unused-javascript|${normalizeUrlKey(file.url)}`;
+            const existing: OffenderAgg | undefined = offenders.get(key);
+            const comboRef: OffenderComboRef = buildOffenderComboRef({
+              combo: r,
+              artifacts,
+              issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.unusedJavascript"),
+              diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "unused-javascript", itemUrl: file.url }) : undefined,
+            });
+            if (!existing) {
+              offenders.set(key, { issueId: "unused-javascript", title: "Reduce unused JavaScript", offenderKey: file.url, combos: [comboRef] });
+            } else {
+              existing.combos.push(comboRef);
+            }
+          }
+        }
+        const legacy = hints.legacyJavascript;
+        if (legacy && legacy.polyfills.length > 0) {
+          for (const polyfill of legacy.polyfills) {
+            const key: string = `legacy-javascript|${normalizeUrlKey(polyfill.url)}`;
+            const existing: OffenderAgg | undefined = offenders.get(key);
+            const comboRef: OffenderComboRef = buildOffenderComboRef({
+              combo: r,
+              artifacts,
+              issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.legacyJavascript"),
+              diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "legacy-javascript", itemUrl: polyfill.url }) : undefined,
+            });
+            if (!existing) {
+              offenders.set(key, { issueId: "legacy-javascript", title: "Avoid serving legacy JavaScript to modern browsers", offenderKey: polyfill.url, combos: [comboRef] });
+            } else {
+              existing.combos.push(comboRef);
+            }
+          }
+        }
+        const rbr = hints.renderBlockingResources;
+        if (rbr && rbr.resources.length > 0) {
+          for (const resource of rbr.resources) {
+            const key: string = `render-blocking-resources|${normalizeUrlKey(resource.url)}`;
+            const existing: OffenderAgg | undefined = offenders.get(key);
+            const comboRef: OffenderComboRef = buildOffenderComboRef({
+              combo: r,
+              artifacts,
+              issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.renderBlockingResources"),
+              diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "render-blocking-resources", itemUrl: resource.url }) : undefined,
+            });
+            if (!existing) {
+              offenders.set(key, { issueId: "render-blocking-resources", title: "Eliminate render-blocking resources", offenderKey: resource.url, combos: [comboRef] });
+            } else {
+              existing.combos.push(comboRef);
+            }
+          }
+        }
+        const lcpPhases = hints.lcpPhases;
+        if (lcpPhases && Object.values(lcpPhases).some((v) => typeof v === "number" && v > 0)) {
+          const key: string = `lcp-phases|${r.path}|${r.device}`;
+          const existing: OffenderAgg | undefined = offenders.get(key);
+          const comboRef: OffenderComboRef = buildOffenderComboRef({
+            combo: r,
+            artifacts,
+            issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.lcpPhases"),
+            diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "lcp-phases" }) : undefined,
+          });
+          if (!existing) {
+            offenders.set(key, { issueId: "lcp-phases", title: "LCP breakdown", offenderKey: `${r.path} [${r.device}]`, combos: [comboRef] });
+          } else {
+            existing.combos.push(comboRef);
+          }
+        }
+        const lcpElement = hints.lcpElement;
+        if (lcpElement && (typeof lcpElement.selector === "string" || typeof lcpElement.snippet === "string")) {
+          const excerpt: string = lcpElement.selector ?? lcpElement.snippet ?? "(unknown)";
+          const key: string = `largest-contentful-paint-element|${r.path}|${r.device}|${excerpt.slice(0, 200)}`;
+          const existing: OffenderAgg | undefined = offenders.get(key);
+          const comboRef: OffenderComboRef = buildOffenderComboRef({
+            combo: r,
+            artifacts,
+            issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.lcpElement"),
+            diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "largest-contentful-paint-element" }) : undefined,
+          });
+          if (!existing) {
+            offenders.set(key, { issueId: "largest-contentful-paint-element", title: "Largest Contentful Paint element", offenderKey: excerpt, combos: [comboRef] });
+          } else {
+            existing.combos.push(comboRef);
+          }
+        }
+        const bfCache = hints.bfCache;
+        if (bfCache && bfCache.reasons.length > 0) {
+          const reasonKey: string = bfCache.reasons.join(" | ");
+          const key: string = `bf-cache|${r.path}|${r.device}|${reasonKey.slice(0, 200)}`;
+          const existing: OffenderAgg | undefined = offenders.get(key);
+          const comboRef: OffenderComboRef = buildOffenderComboRef({
+            combo: r,
+            artifacts,
+            issuesPointer: buildIssuesPointerForCombo({ label: r.label, path: r.path, device: r.device }, "hints.bfCache"),
+            diagnosticsLitePointer: artifacts?.diagnosticsLiteRelPath ? buildDiagnosticsLiteAuditPointer({ auditId: "bf-cache" }) : undefined,
+          });
+          if (!existing) {
+            offenders.set(key, { issueId: "bf-cache", title: "Page prevented back/forward cache restoration", offenderKey: reasonKey, combos: [comboRef] });
+          } else {
+            existing.combos.push(comboRef);
+          }
+        }
+      }
       failing.push({
         label: r.label,
         path: r.path,
         device: r.device,
+        pageScope: r.pageScope,
         performance: r.scores.performance,
         accessibility: r.scores.accessibility,
         bestPractices: r.scores.bestPractices,
@@ -3994,17 +5198,37 @@ function buildIssuesIndex(params: {
     .map(([id, v]) => ({ id, title: v.title, count: v.count, totalMs: Math.round(v.totalMs) }))
     .sort((a, b) => b.totalMs - a.totalMs)
     .slice(0, 20);
+  const offendersList: IssuesIndex["offenders"] = [...offenders.values()]
+    .map((o) => {
+      const uniqueCombos: OffenderComboRef[] = o.combos.reduce((acc, c) => {
+        const key: string = `${c.label}|${c.path}|${c.device}`;
+        if (acc.some((x) => `${x.label}|${x.path}|${x.device}` === key)) {
+          return acc;
+        }
+        return [...acc, c];
+      }, [] as OffenderComboRef[]);
+      return {
+        issueId: o.issueId,
+        title: o.title,
+        offenderKey: o.offenderKey,
+        affectedCombos: uniqueCombos.length,
+        combos: uniqueCombos,
+      };
+    })
+    .sort((a, b) => b.affectedCombos - a.affectedCombos)
+    .slice(0, 100);
   return {
     generatedAt,
     targetScore: params.targetScore,
     totals: {
-      combos: params.summary.results.length,
+      combos: scored.length,
       redCombos: counts.red,
       yellowCombos: counts.yellow,
       greenCombos: counts.green,
       runtimeErrors: counts.runtimeErrors,
     },
     topIssues,
+    offenders: offendersList,
     failing,
   };
 }
@@ -4199,7 +5423,7 @@ function buildOverviewMarkdown(params: {
     captureLevel: params.captureLevel,
     chromePort: undefined,
   });
-  const results: readonly PageDeviceSummary[] = params.summary.results;
+  const results: readonly PageDeviceSummary[] = params.summary.results.filter(isPublicCombo);
   const worstPerf: readonly PageDeviceSummary[] = [...results].sort((a, b) => (a.scores.performance ?? 101) - (b.scores.performance ?? 101)).slice(0, 10);
   const worstA11y: readonly PageDeviceSummary[] = [...results].sort((a, b) => (a.scores.accessibility ?? 101) - (b.scores.accessibility ?? 101)).slice(0, 10);
   const worstBp: readonly PageDeviceSummary[] = [...results].sort((a, b) => (a.scores.bestPractices ?? 101) - (b.scores.bestPractices ?? 101)).slice(0, 10);
@@ -4221,6 +5445,7 @@ function buildOverviewMarkdown(params: {
   lines.push(`- Plan (JSON): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: params.planPath, label: "plan.json" })}`);
   lines.push(`- Report: ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: params.reportPath, label: "report.html" })}`);
   lines.push(`- Issues (JSON): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "issues.json"), label: "issues.json" })}`);
+  lines.push(`- AI ledger (JSON): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "ai-ledger.json"), label: "ai-ledger.json" })}`);
   if (params.includeAiFix) {
     lines.push(`- AI fix packet (JSON): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "ai-fix.json"), label: "ai-fix.json" })}`);
     lines.push(`- AI fix packet (min): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "ai-fix.min.json"), label: "ai-fix.min.json" })}`);
@@ -4295,15 +5520,18 @@ function buildOverviewMarkdown(params: {
   lines.push("");
   lines.push("---");
   lines.push("");
-  lines.push("## Next runs (accuracy alignment)");
+  lines.push("## Next runs (fast iteration)");
   lines.push("");
-  lines.push("Use this to compare `simulate` vs `devtools` throttling and find the default that matches Chrome DevTools Lighthouse for your project.");
+  lines.push("Use this to iterate quickly and keep a high-signal feedback loop. Treat `--stable` as a fallback when parallel mode flakes.");
   lines.push("");
   lines.push("```bash");
-  lines.push("# Baseline (simulate)");
+  lines.push("# Full sweep (fast feedback)");
+  lines.push("apex-auditor audit --diagnostics");
+  lines.push("# Focused rerun (high signal)");
+  lines.push("# - re-runs only the worst N combos from the previous summary.json");
+  lines.push("apex-auditor audit --focus-worst 10 --diagnostics");
+  lines.push("# Fallback stability mode (only if parallel flakes)");
   lines.push("apex-auditor audit --stable --diagnostics");
-  lines.push("# Compare (devtools)");
-  lines.push("apex-auditor audit --stable --diagnostics --throttling devtools");
   lines.push("```");
   const prev: RunSummary | undefined = params.previousSummary;
   const prevThrottling: ApexThrottlingMethod | undefined = prev?.meta.throttlingMethod;
@@ -4401,7 +5629,8 @@ function buildTriageMarkdown(params: {
   readonly includeExport: boolean;
 }): string {
   const lines: string[] = [];
-  const worstFirst: readonly PageDeviceSummary[] = [...params.summary.results].sort((a, b) => {
+  const scopedResults: readonly PageDeviceSummary[] = params.summary.results.filter(isPublicCombo);
+  const worstFirst: readonly PageDeviceSummary[] = [...scopedResults].sort((a, b) => {
     const aP: number = a.scores.performance ?? 101;
     const bP: number = b.scores.performance ?? 101;
     if (aP !== bP) {
@@ -4446,6 +5675,7 @@ function buildTriageMarkdown(params: {
   lines.push(`- Summary: ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "summary.json"), label: "summary.json" })}`);
   lines.push(`- Summary (lite): ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "summary-lite.json"), label: "summary-lite.json" })}`);
   lines.push(`- Issues: ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "issues.json"), label: "issues.json" })}`);
+  lines.push(`- AI ledger: ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "ai-ledger.json"), label: "ai-ledger.json" })}`);
   if (params.includeAiFix) {
     lines.push(`- AI fix packet: ${toRelativeMarkdownLink({ outputDir: params.outputDir, absolutePath: resolve(params.outputDir, "ai-fix.min.json"), label: "ai-fix.min.json" })}`);
   }

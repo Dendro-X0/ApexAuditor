@@ -10,6 +10,8 @@ import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
 import { stopSpinner } from "./spinner.js";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 
 type ConsoleArgs = {
   readonly configPath: string;
@@ -86,6 +88,18 @@ type LogEntryEnvelope = {
 type LogEntry = {
   readonly level?: unknown;
   readonly text?: unknown;
+};
+
+type RunnerEvidence = {
+  readonly kind: "file";
+  readonly path: string;
+};
+
+type RunnerFinding = {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly RunnerEvidence[];
 };
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS: number = 60_000;
@@ -416,14 +430,55 @@ export async function runConsoleCli(argv: readonly string[], options?: { readonl
       await mkdir(outputDir, { recursive: true });
       await writeFile(outputPath, JSON.stringify(report, null, 2), "utf8");
 
+      const errorCombos: number = results.filter((r) => r.status === "error").length;
+      const eventCount: number = results.reduce((sum, r) => sum + r.events.length, 0);
+      const evidence: readonly RunnerEvidence[] = [{ kind: "file", path: ".apex-auditor/console.json" }] as const;
+      const findings: RunnerFinding[] = [
+        {
+          title: "Summary",
+          severity: errorCombos > 0 ? "error" : "info",
+          details: [`Combos: ${results.length}`, `Error combos: ${errorCombos}`, `Events: ${eventCount}`],
+          evidence,
+        },
+      ];
+      const worst: readonly (typeof results)[number][] = [...results]
+        .filter((r) => r.status === "error")
+        .sort((a, b) => b.events.length - a.events.length)
+        .slice(0, 10);
+      if (worst.length > 0) {
+        findings.push({
+          title: "Worst pages (top 10 by error events)",
+          severity: "warn",
+          details: worst.map((r) => `${r.label} ${r.path} [${r.device}] – ${r.events.length} events`),
+          evidence,
+        });
+      }
+      await writeRunnerReports({
+        outputDir,
+        runner: "console",
+        generatedAt: new Date().toISOString(),
+        humanTitle: "ApexAuditor Console report",
+        humanSummaryLines: [`Combos: ${results.length}`, `Error combos: ${errorCombos}`, `Events: ${eventCount}`],
+        artifacts: [{ label: "Console events (JSON)", relativePath: "console.json" }],
+        aiMeta: {
+          configPath,
+          baseUrl: config.baseUrl,
+          comboCount: results.length,
+          resolvedParallel: parallel,
+          timeoutMs: args.timeoutMs,
+          maxEventsPerTarget: args.maxEventsPerTarget,
+          errorCombos,
+          eventCount,
+        },
+        aiFindings: findings,
+      });
+      await writeArtifactsNavigation({ outputDir });
+
       if (args.jsonOutput) {
         // eslint-disable-next-line no-console
         console.log(JSON.stringify(report, null, 2));
         return;
       }
-
-      const errorCombos: number = results.filter((r) => r.status === "error").length;
-      const eventCount: number = results.reduce((sum, r) => sum + r.events.length, 0);
       const lines: readonly string[] = [
         `Config: ${configPath}`,
         `Base URL: ${config.baseUrl}`,

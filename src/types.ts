@@ -1,5 +1,7 @@
 export type ApexDevice = "mobile" | "desktop";
 
+export type ApexPageScope = "public" | "requires-auth";
+
 /**
  * Throttling method for Lighthouse audits.
  * - "simulate": Fast, uses simulation (default). May produce lower scores than DevTools.
@@ -11,6 +13,7 @@ export interface ApexPageConfig {
   readonly path: string;
   readonly label: string;
   readonly devices: readonly ApexDevice[];
+  readonly scope?: ApexPageScope;
 }
 
 export interface CategoryBudgetThresholds {
@@ -125,6 +128,7 @@ export interface PageDeviceSummary {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly scores: CategoryScores;
   readonly metrics: MetricValues;
   readonly opportunities: readonly OpportunitySummary[];

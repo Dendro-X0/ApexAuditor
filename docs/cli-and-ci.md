@@ -6,6 +6,15 @@ This document describes non-interactive CLI usage (for scripts/CI) and budget en
 
 The CLI binary is `apex-auditor`.
 
+Install from GitHub Releases:
+
+1. Download the `apex-auditor-<version>.tgz` asset from the GitHub Release.
+2. Install it in your project:
+
+```bash
+pnpm add -D ./apex-auditor-<version>.tgz
+```
+
 ### `shell`
 
 Interactive mode (recommended for local use):
@@ -86,7 +95,9 @@ Outputs:
 - `.apex-auditor/summary.json`
 - `.apex-auditor/summary-lite.json`
 - `.apex-auditor/issues.json`
+- `.apex-auditor/pwa.json`
 - `.apex-auditor/triage.md`
+- `.apex-auditor/ai-ledger.json`
 - `.apex-auditor/ai-fix.json` (unless `--no-ai-fix`)
 - `.apex-auditor/ai-fix.min.json` (unless `--no-ai-fix`)
 - `.apex-auditor/export.json` (unless `--no-export`)
@@ -114,6 +125,9 @@ When you care about token efficiency and disk output size:
 - Use `--ai-min-combos <n>` to keep `ai-fix.min.json` small.
 - Use `--no-ai-fix` when you only need `issues.json` / `triage.md` and the HTML report.
 - Use `--no-export` when you do not need `export.json` links or share payloads.
+- Use `ai-ledger.json` as the one-run AI entry point; it includes per-combo `regressions`/`improvements` when a previous `.apex-auditor/summary.json` exists, and evidence pointers into `issues.json` and `lighthouse-artifacts/diagnostics-lite/`.
+- Use `issues.json.offenders` to find repeated offenders (e.g. unused JS files) with route + artifact evidence pointers.
+- Use `pwa.json` to track PWA checks (HTTPS, service worker, offline signals) across routes.
 
 ## Known issues
 

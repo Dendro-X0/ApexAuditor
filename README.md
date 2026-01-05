@@ -16,7 +16,7 @@ From your web project root:
 pnpm dlx apex-auditor@latest
 ```
 
-This is the recommended way to run ApexAuditor because it always uses the latest published version.
+This runs the latest published version without installing it.
 
 Notes:
 
@@ -60,15 +60,24 @@ Install as a dev dependency (recommended):
 pnpm add -D apex-auditor
 ```
 
-Note: `pnpm apex-auditor` runs the version installed in your current project, which may be older than the latest release.
-
-To always run the latest published version without installing:
-
-Or run without installing:
+Run:
 
 ```bash
-pnpm dlx apex-auditor@latest
+pnpm apex-auditor
 ```
+
+Or install from GitHub Releases:
+
+1. Download the `apex-auditor-<version>.tgz` asset from the latest GitHub Release.
+2. Install it:
+
+```bash
+pnpm add -D ./apex-auditor-<version>.tgz
+```
+
+Note: `pnpm apex-auditor` runs the version installed in your current project, which may be older than the latest release.
+
+Note: if you use GitHub Releases for distribution, prefer installing from a downloaded release asset over relying on npm publishing.
 
 ## Outputs
 
@@ -81,8 +90,10 @@ All outputs are written under `.apex-auditor/` in your project.
 - `summary.md`
 - `triage.md`
 - `issues.json`
+- `ai-ledger.json`
 - `ai-fix.json` (unless `audit --no-ai-fix`)
 - `ai-fix.min.json` (unless `audit --no-ai-fix`)
+- `pwa.json`
 - `export.json` (unless `audit --no-export`)
 - `report.html`
 - `screenshots/` (when `audit --diagnostics` or `audit --lhr` is used)
@@ -98,6 +109,8 @@ Notes:
 - During an audit you will see a runtime progress line like `page X/Y — /path [device] | ETA ...`.
 - After `audit` completes, type `open` to open the latest HTML report.
 - Large JSON files may also be written as gzip copies (`*.json.gz`) to reduce disk size.
+- `ai-ledger.json` is the AI-first, one-run-sufficient index. It includes `regressions`/`improvements` (when a previous `.apex-auditor/summary.json` exists) and evidence pointers into `issues.json` and `lighthouse-artifacts/diagnostics-lite/`.
+- `issues.json` includes an `offenders` section that aggregates repeated offenders (for example unused JS files) and links each offender back to the exact combo(s) and artifact pointers that contain the evidence.
 
 Speed and output controls:
 
@@ -140,6 +153,7 @@ Common fields:
 
 - `baseUrl`
 - `pages` (routes + devices)
+- `pages[].scope` (optional: `public` | `requires-auth`)
 - `throttlingMethod` (`simulate` or `devtools`)
 - `cpuSlowdownMultiplier`
 - `parallel`
@@ -159,8 +173,9 @@ Example:
   "parallel": 4,
   "warmUp": true,
   "pages": [
-    { "path": "/", "label": "home", "devices": ["mobile", "desktop"] },
-    { "path": "/docs", "label": "docs", "devices": ["desktop"] }
+    { "path": "/", "label": "home", "devices": ["mobile", "desktop"], "scope": "public" },
+    { "path": "/account", "label": "account", "devices": ["mobile"], "scope": "requires-auth" },
+    { "path": "/docs", "label": "docs", "devices": ["desktop"], "scope": "public" }
   ],
   "budgets": {
     "categories": { "performance": 80, "accessibility": 90, "bestPractices": 90, "seo": 90 },
@@ -180,6 +195,7 @@ Recommended workflow for large suites:
 
 - Run a broad sweep with `throttlingMethod: simulate` (fast feedback).
 - Then re-run only the worst routes with `audit --focus-worst <n>` and `throttlingMethod: devtools` for a more DevTools-like focused rerun.
+- If parallel mode flakes (Chrome disconnects / Lighthouse target errors), retry with `audit --stable` (forces parallel=1).
 
 ## Documentation
 

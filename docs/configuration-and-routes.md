@@ -52,6 +52,14 @@ Each page entry:
 { "path": "/pricing", "label": "pricing", "devices": ["mobile", "desktop"] }
 ```
 
+Optional fields:
+
+- `scope`: `public` (default) or `requires-auth`
+
+Notes:
+
+- Pages marked `requires-auth` are still audited and appear in per-combo outputs, but they are excluded from global suite scoring and aggregated issue counts.
+
 Rules:
 
 - `path` must start with `/`.

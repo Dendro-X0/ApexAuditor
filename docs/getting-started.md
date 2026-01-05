@@ -103,6 +103,7 @@ Outputs:
 - `.apex-auditor/summary.md`
 - `.apex-auditor/triage.md`
 - `.apex-auditor/issues.json`
+- `.apex-auditor/pwa.json`
 - `.apex-auditor/ai-fix.json` (unless `audit --no-ai-fix`)
 - `.apex-auditor/ai-fix.min.json` (unless `audit --no-ai-fix`)
 - `.apex-auditor/export.json` (unless `audit --no-export`)
@@ -117,6 +118,7 @@ Outputs:
 Notes:
 
 - Start with `triage.md` and `issues.json` when the suite is large.
+- For PWA-specific checks (HTTPS, service worker, offline signals), use `pwa.json`.
 - Large JSON files may also be written as gzip copies (`*.json.gz`) to reduce disk size.
 
 Speed and output controls:
@@ -124,6 +126,7 @@ Speed and output controls:
 - `audit --focus-worst <n>` re-runs only the worst N combos from the previous run.
 - `audit --ai-min-combos <n>` limits `ai-fix.min.json` to the worst N combos (default 25).
 - `audit --no-ai-fix` and `audit --no-export` can skip writing large artifacts.
+- If parallel mode flakes (Chrome disconnects / Lighthouse target errors), retry with `audit --stable` (forces parallel=1).
 
 ## 5. Bundle (build output sizes)
 

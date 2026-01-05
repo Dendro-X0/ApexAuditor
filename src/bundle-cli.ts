@@ -1,5 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -39,6 +41,13 @@ type BundleAuditSummary = {
 
 const NO_COLOR: boolean = Boolean(process.env.NO_COLOR) || process.env.CI === "true";
 const theme: UiTheme = new UiTheme({ noColor: NO_COLOR });
+
+type AiFinding = {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
+};
 
 function formatBytes(bytes: number): string {
   const kb: number = bytes / 1024;
@@ -130,6 +139,30 @@ function buildTopFilesTable(entries: readonly BundleFileEntry[], top: number): s
   return renderTable({ headers: ["Type", "Size", "File"], rows });
 }
 
+function buildAiFindings(report: BundleAuditSummary, top: number): readonly AiFinding[] {
+  const evidence = [{ kind: "file", path: ".apex-auditor/bundle-audit.json" }] as const;
+  const findings: AiFinding[] = [];
+  findings.push({
+    title: "Bundle totals",
+    severity: "info",
+    details: [
+      `Files: ${report.totals.fileCount}`,
+      `JS: ${formatBytes(report.totals.jsBytes)}`,
+      `CSS: ${formatBytes(report.totals.cssBytes)}`,
+    ],
+    evidence,
+  });
+  if (report.topFiles.length > 0) {
+    findings.push({
+      title: `Largest bundle files (top ${top})`,
+      severity: "warn",
+      details: report.topFiles.slice(0, top).map((f) => `${f.kind} ${formatBytes(f.bytes)} ${f.relativePath}`),
+      evidence,
+    });
+  }
+  return findings;
+}
+
 export async function runBundleCli(argv: readonly string[], options?: { readonly signal?: AbortSignal }): Promise<void> {
   stopSpinner();
   const args: BundleArgs = parseArgs(argv);
@@ -184,6 +217,28 @@ export async function runBundleCli(argv: readonly string[], options?: { readonly
   const outputPath: string = resolve(outputDir, "bundle-audit.json");
   await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, JSON.stringify(report, null, 2), "utf8");
+  await writeRunnerReports({
+    outputDir,
+    runner: "bundle",
+    generatedAt: report.meta.scannedAt,
+    humanTitle: "ApexAuditor Bundle report",
+    humanSummaryLines: [
+      `Project: ${projectRoot}`,
+      `Detected: ${[hasNext ? ".next" : "", hasDist ? "dist" : ""].filter((v) => v.length > 0).join(", ") || "(none)"}`,
+      `Files: ${report.totals.fileCount}`,
+      `JS: ${formatBytes(report.totals.jsBytes)}`,
+      `CSS: ${formatBytes(report.totals.cssBytes)}`,
+    ],
+    artifacts: [{ label: "Bundle audit (JSON)", relativePath: "bundle-audit.json" }],
+    aiMeta: {
+      projectRoot,
+      detected: report.meta.detected,
+      totals: report.totals,
+      top: args.top,
+    },
+    aiFindings: buildAiFindings(report, args.top),
+  });
+  await writeArtifactsNavigation({ outputDir });
 
   if (args.jsonOutput) {
     // eslint-disable-next-line no-console

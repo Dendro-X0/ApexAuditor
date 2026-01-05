@@ -1,10 +1,22 @@
 # Changelog
 
+## 0.4.0 - 2026-01-05
+
+### Added
+- Config: `pages[].scope` (`public` | `requires-auth`) so auth-protected routes can be audited without polluting global suite scoring.
+- Outputs: `issues.json.offenders` aggregates repeated offenders (e.g. unused JS files) and links each offender back to exact combos with artifact paths and JSON pointers.
+- Outputs: `pwa.json` PWA-focused checks (HTTPS, service worker, offline signals) with per-route evidence pointers into `diagnostics-lite`.
+
+### Changed
+- Reporting: global scoring/aggregation excludes `requires-auth` pages while still reporting them per-combo.
+- Workflow guidance: documentation and navigation now emphasize fast iteration (rerun worst/failing) with `--stable` as a fallback when parallel mode flakes.
+
 ## 0.3.9 - 2026-01-03
 
 ### Added
 - Outputs: `ai-fix.json` consolidated AI-first packet that aggregates per-combo fixes (scores, opportunities, key diagnostics hints, artifact links) and cross-route repeated offenders (e.g. top unused JS files, redirect chains).
 - Outputs: `ai-fix.min.json` compact packet for token-efficient AI workflows.
+- Outputs: `ai-ledger.json` one-run AI index (normalized issues + offenders + fix plan) with evidence pointers into `issues.json` and `lighthouse-artifacts/diagnostics-lite/`, plus per-combo `regressions`/`improvements` when a previous `.apex-auditor/summary.json` exists.
 - Audit: restored optional multi-run support via `runs` in `apex.config.json`, emitting per-combo `runStats` (median/p75/stddev) to make Lighthouse variance visible.
 - Audit: speed and artifact controls: `--ai-min-combos <n>`, `--no-ai-fix`, `--no-export`, and `--focus-worst <n>`.
 

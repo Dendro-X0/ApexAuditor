@@ -11,6 +11,7 @@ import type {
   ApexCategory,
   ApexConfig,
   ApexDevice,
+  ApexPageScope,
   ApexThrottlingMethod,
   CategoryScores,
   ComboRunStats,
@@ -65,6 +66,7 @@ function buildFailureSummary(task: AuditTask, errorMessage: string): PageDeviceS
     path: task.path,
     label: task.label,
     device: task.device,
+    pageScope: task.pageScope,
     scores: {},
     metrics: {},
     opportunities: [],
@@ -251,6 +253,7 @@ async function runParallelInProcesses(
       path: task.path,
       label: task.label,
       device: task.device,
+      pageScope: task.pageScope,
       logLevel: task.logLevel,
       throttlingMethod: task.throttlingMethod,
       cpuSlowdownMultiplier: task.cpuSlowdownMultiplier,
@@ -407,6 +410,7 @@ interface RunAuditParams {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly port: number;
   readonly logLevel: "silent" | "error" | "info" | "verbose";
   readonly throttlingMethod: ApexThrottlingMethod;
@@ -424,6 +428,7 @@ interface AuditTask {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly runs: number;
   readonly logLevel: "silent" | "error" | "info" | "verbose";
   readonly throttlingMethod: ApexThrottlingMethod;
@@ -436,6 +441,7 @@ type WorkerTask = {
   readonly path: string;
   readonly label: string;
   readonly device: ApexDevice;
+  readonly pageScope?: ApexPageScope;
   readonly logLevel: "silent" | "error" | "info" | "verbose";
   readonly throttlingMethod: ApexThrottlingMethod;
   readonly cpuSlowdownMultiplier: number;
@@ -674,6 +680,7 @@ export async function runAuditsForConfig({
         path: page.path,
         label: page.label,
         device,
+        pageScope: page.scope,
         runs,
         logLevel,
         throttlingMethod,
@@ -845,6 +852,7 @@ async function runSequential(params: {
             path: task.path,
             label: task.label,
             device: task.device,
+            pageScope: task.pageScope,
             port: sessionRef.session.port,
             logLevel: task.logLevel,
             throttlingMethod: task.throttlingMethod,
@@ -1088,6 +1096,7 @@ async function runSingleAudit(params: RunAuditParams): Promise<AuditOutcome> {
     path: params.path,
     label: params.label,
     device: params.device,
+    pageScope: params.pageScope,
     scores,
     metrics,
     opportunities,

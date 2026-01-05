@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import type { ApexConfig } from "./types.js";
 import { loadConfig } from "./config.js";
 import { buildDevServerGuidanceLines } from "./dev-server-guidance.js";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -56,6 +58,13 @@ const NO_COLOR: boolean = Boolean(process.env.NO_COLOR) || process.env.CI === "t
 const theme: UiTheme = new UiTheme({ noColor: NO_COLOR });
 
 const MAX_MISSING_HEADERS_DISPLAY: number = 5;
+
+type AiFinding = {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
+};
 
 function buildUrl(params: { readonly baseUrl: string; readonly path: string; readonly query?: string }): string {
   const cleanBase: string = params.baseUrl.replace(/\/$/, "");
@@ -178,6 +187,34 @@ function buildMissingDetailsPanel(results: readonly HeaderCheckResult[]): string
     lines.push(`...and ${withMissing.length - limited.length} more`);
   }
   return renderPanel({ title: theme.bold("Missing headers"), lines });
+}
+
+function buildAiFindings(results: readonly HeaderCheckResult[]): readonly AiFinding[] {
+  const evidence = [{ kind: "file", path: ".apex-auditor/headers.json" }] as const;
+  const errors = results.filter((r) => typeof r.runtimeErrorMessage === "string" && r.runtimeErrorMessage.length > 0);
+  const withMissing = results.filter((r) => r.missing.length > 0);
+  const topMissing = [...withMissing]
+    .sort((a, b) => b.missing.length - a.missing.length)
+    .slice(0, 10)
+    .map((r) => `${r.label} ${r.path} – missing ${r.missing.length}: ${r.missing.slice(0, 5).join(", ")}`);
+  const findings: AiFinding[] = [];
+  if (errors.length > 0) {
+    findings.push({
+      title: "Request errors",
+      severity: "error",
+      details: errors.slice(0, 10).map((r) => `${r.label} ${r.path} – ${r.runtimeErrorMessage ?? ""}`),
+      evidence,
+    });
+  }
+  if (topMissing.length > 0) {
+    findings.push({
+      title: "Missing security headers (worst 10)",
+      severity: "warn",
+      details: topMissing,
+      evidence,
+    });
+  }
+  return findings;
 }
 
 function isConnectionErrorMessage(message: string): boolean {
@@ -324,6 +361,28 @@ export async function runHeadersCli(argv: readonly string[], options?: { readonl
   const outputPath: string = resolve(outputDir, "headers.json");
   await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, JSON.stringify(report, null, 2), "utf8");
+  await writeRunnerReports({
+    outputDir,
+    runner: "headers",
+    generatedAt: new Date().toISOString(),
+    humanTitle: "ApexAuditor Headers report",
+    humanSummaryLines: [
+      `Targets: ${results.length}`,
+      `Fail: ${results.filter((r) => r.missing.length > 0 || Boolean(r.runtimeErrorMessage)).length}`,
+      `Parallel: ${parallel}`,
+      `Timeout: ${args.timeoutMs}ms`,
+    ],
+    artifacts: [{ label: "Headers (JSON)", relativePath: "headers.json" }],
+    aiMeta: {
+      configPath,
+      baseUrl: config.baseUrl,
+      comboCount: results.length,
+      resolvedParallel: parallel,
+      timeoutMs: args.timeoutMs,
+    },
+    aiFindings: buildAiFindings(results),
+  });
+  await writeArtifactsNavigation({ outputDir });
 
   if (args.jsonOutput) {
     // eslint-disable-next-line no-console

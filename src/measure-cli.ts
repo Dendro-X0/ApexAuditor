@@ -6,6 +6,8 @@ import { loadConfig } from "./config.js";
 import { runMeasureForConfig } from "./measure-runner.js";
 import type { MeasureSummary } from "./measure-types.js";
 import { isSpinnerActive, stopSpinner, updateSpinnerMessage } from "./spinner.js";
+import { writeRunnerReports } from "./runner-reporting.js";
+import { writeArtifactsNavigation } from "./artifacts-navigation.js";
 import { renderPanel } from "./ui/render-panel.js";
 import { renderTable } from "./ui/render-table.js";
 import { UiTheme } from "./ui/ui-theme.js";
@@ -305,6 +307,26 @@ export async function runMeasureCli(argv: readonly string[], options?: { readonl
   await writeJsonWithOptionalGzip(resolve(outputDir, "measure-summary.json"), summary);
   const lite: MeasureSummaryLite = buildMeasureSummaryLite(summary);
   await writeJsonWithOptionalGzip(resolve(outputDir, "measure-summary-lite.json"), lite);
+  await writeRunnerReports({
+    outputDir,
+    runner: "measure",
+    generatedAt: lite.generatedAt,
+    humanTitle: "ApexAuditor Measure report",
+    humanSummaryLines: buildSummaryLines(summary),
+    artifacts: [
+      { label: "Summary", relativePath: "measure-summary.json" },
+      { label: "Summary (lite)", relativePath: "measure-summary-lite.json" },
+    ],
+    aiMeta: {
+      configPath,
+      comboCount: summary.meta.comboCount,
+      resolvedParallel: summary.meta.resolvedParallel,
+      elapsedMs: summary.meta.elapsedMs,
+      screenshots: args.screenshots,
+    },
+    aiFindings: buildAiFindings(summary),
+  });
+  await writeArtifactsNavigation({ outputDir });
   if (args.jsonOutput) {
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(summary, null, 2));
@@ -344,4 +366,86 @@ export async function runMeasureCli(argv: readonly string[], options?: { readonl
     // eslint-disable-next-line no-console
     console.log(errorTable);
   }
+}
+
+type MeasureRowRef = {
+  readonly label: string;
+  readonly path: string;
+  readonly device: ApexDevice;
+};
+
+function comboLabel(r: MeasureRowRef): string {
+  return `${r.label} ${r.path} [${r.device}]`;
+}
+
+function topBy<T>(items: readonly T[], toValue: (item: T) => number | undefined, limit: number): readonly { readonly item: T; readonly value: number }[] {
+  return [...items]
+    .map((item) => {
+      const value: number | undefined = toValue(item);
+      return value === undefined ? undefined : { item, value };
+    })
+    .filter((x): x is { readonly item: T; readonly value: number } => x !== undefined)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit);
+}
+
+function buildAiFindings(summary: MeasureSummary): readonly {
+  readonly title: string;
+  readonly severity: "info" | "warn" | "error";
+  readonly details: readonly string[];
+  readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
+}[] {
+  const evidence = [{ kind: "file", path: ".apex-auditor/measure-summary.json" }] as const;
+  const errors = summary.results.filter((r) => typeof r.runtimeErrorMessage === "string" && r.runtimeErrorMessage.length > 0);
+  const slowLoad = topBy(summary.results, (r) => r.timings.loadMs, 5);
+  const worstLcp = topBy(summary.results, (r) => r.vitals.lcpMs, 5);
+  const worstCls = topBy(summary.results, (r) => (typeof r.vitals.cls === "number" ? r.vitals.cls : undefined), 5);
+  const longTaskMax = topBy(summary.results, (r) => r.longTasks.maxMs, 5);
+  const findings: {
+    readonly title: string;
+    readonly severity: "info" | "warn" | "error";
+    readonly details: readonly string[];
+    readonly evidence: readonly { readonly kind: "file"; readonly path: string }[];
+  }[] = [];
+  if (errors.length > 0) {
+    findings.push({
+      title: "Runtime errors",
+      severity: "error",
+      details: errors.slice(0, 10).map((r) => `${comboLabel(r)} – ${r.runtimeErrorMessage ?? ""}`),
+      evidence,
+    });
+  }
+  if (slowLoad.length > 0) {
+    findings.push({
+      title: "Slow load (top 5 by Load)",
+      severity: "warn",
+      details: slowLoad.map((x) => `${comboLabel(x.item as MeasureRowRef)} – ${Math.round(x.value)}ms`),
+      evidence,
+    });
+  }
+  if (worstLcp.length > 0) {
+    findings.push({
+      title: "Largest Contentful Paint (top 5)",
+      severity: "warn",
+      details: worstLcp.map((x) => `${comboLabel(x.item as MeasureRowRef)} – ${Math.round(x.value)}ms`),
+      evidence,
+    });
+  }
+  if (worstCls.length > 0) {
+    findings.push({
+      title: "Cumulative Layout Shift (top 5)",
+      severity: "warn",
+      details: worstCls.map((x) => `${comboLabel(x.item as MeasureRowRef)} – ${Math.round(x.value * 1000) / 1000}`),
+      evidence,
+    });
+  }
+  if (longTaskMax.length > 0) {
+    findings.push({
+      title: "Long tasks (top 5 by max task)",
+      severity: "warn",
+      details: longTaskMax.map((x) => `${comboLabel(x.item as MeasureRowRef)} – max ${Math.round(x.value)}ms`),
+      evidence,
+    });
+  }
+  return findings;
 }

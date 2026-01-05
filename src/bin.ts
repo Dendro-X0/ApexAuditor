@@ -13,9 +13,13 @@ import { runConsoleCli } from "./console-cli.js";
 import { runCleanCli } from "./clean-cli.js";
 import { runUninstallCli } from "./uninstall-cli.js";
 import { runClearScreenshotsCli } from "./clear-screenshots-cli.js";
+import { runQuickCli } from "./quick-cli.js";
+import { runReportCli } from "./report-cli.js";
 
 type ApexCommandId =
   | "audit"
+  | "quick"
+  | "report"
   | "measure"
   | "bundle"
   | "health"
@@ -51,6 +55,8 @@ function parseBinArgs(argv: readonly string[]): ParsedBinArgs {
   }
   if (
     rawCommand === "audit" ||
+    rawCommand === "quick" ||
+    rawCommand === "report" ||
     rawCommand === "measure" ||
     rawCommand === "bundle" ||
     rawCommand === "health" ||
@@ -156,6 +162,8 @@ function printHelp(topic?: string): void {
       "  apex-auditor                 # interactive shell (default)",
       "  apex-auditor quickstart --base-url <url> [--project-root <path>]",
       "  apex-auditor wizard [--config <path>]",
+      "  apex-auditor quick [--config <path>] [--project-root <path>]",
+      "  apex-auditor report [--dir <path>]",
       "  apex-auditor audit [--config <path>] [--ci] [--no-color|--color] [--log-level <level>]",
       "  apex-auditor audit --flags    # print audit flags/options and exit",
       "  apex-auditor guide  (alias of wizard) interactive flow with tips for non-technical users",
@@ -170,6 +178,8 @@ function printHelp(topic?: string): void {
       "",
       "  Audits and checks:",
       "    measure    Fast batch metrics (CDP-based, non-Lighthouse)",
+      "    quick      Fast runner pack (measure + headers + links + bundle + accessibility pass)",
+      "    report     Generate global reports from existing .apex-auditor/ artifacts (no Lighthouse run)",
       "    audit      Run Lighthouse audits using apex.config.json",
       "    bundle     Bundle size audit (Next.js .next/ or dist/ build output)",
       "    health     HTTP status + latency checks for configured routes",
@@ -192,7 +202,7 @@ function printHelp(topic?: string): void {
       "  --no-color         Disable ANSI colours in console output (default in CI mode)",
       "  --color            Force ANSI colours in console output",
       "  --log-level <lvl>  Override Lighthouse log level: silent|error|info|verbose",
-      "  --stable           Flake-resistant mode: forces parallel=1, good for big suites or flaky runners",
+      "  --stable           Fallback mode: forces parallel=1 when parallel mode flakes (Chrome disconnects / Lighthouse target errors)",
       "  --mobile-only      Run audits only for 'mobile' devices defined in the config",
       "  --desktop-only     Run audits only for 'desktop' devices defined in the config",
       "  --parallel <n>     Override parallel workers (1-10). Default auto-tunes from CPU/memory.",
@@ -250,6 +260,26 @@ function printHelp(topic?: string): void {
       "  --timeout-ms <ms>      Per-request timeout (default 20000)",
       "  --json                 Print JSON report to stdout",
       "",
+      "Options (quick):",
+      "  --config <path>        Config path (default apex.config.json)",
+      "  --project-root <path>  Project root for bundle scan (default cwd)",
+      "  --mobile-only          Restrict measure + accessibility to mobile combos",
+      "  --desktop-only         Restrict measure + accessibility to desktop combos",
+      "  --measure-parallel <n> Parallel workers for measure (1-10)",
+      "  --measure-timeout-ms <ms>  Measure per-navigation timeout",
+      "  --headers-parallel <n> Parallel requests for headers",
+      "  --headers-timeout-ms <ms>  Headers per-request timeout",
+      "  --links-parallel <n>   Parallel requests for links",
+      "  --links-timeout-ms <ms> Links per-request timeout",
+      "  --links-max-urls <n>   Limit links URLs checked",
+      "  --bundle-top <n>       Show top N largest files",
+      "  --accessibility-parallel <n> Parallel workers for accessibility pass",
+      "  --accessibility-timeout-ms <ms> Accessibility per-navigation timeout",
+      "  --json                 Print consolidated AI JSON to stdout",
+      "",
+      "Options (report):",
+      "  --dir <path>           Artifacts directory (default .apex-auditor)",
+      "",
       "Options (console):",
       "  --config <path>        Config path (default apex.config.json)",
       "  --parallel <n>         Parallel workers (default auto)",
@@ -292,7 +322,7 @@ function printHelp(topic?: string): void {
       "Defaults:",
       "  - Parallel auto-tunes from CPU/memory (up to 4 by default)",
       "  - Throttling: simulate, CPU slowdown: 4, Runs: 1",
-      "  - Stable: use --stable to force serial runs when parallel flakes (e.g., TargetClose/Lantern errors)",
+      "  - Stability: use --stable only when parallel mode flakes (e.g., TargetClose/Lantern errors)",
       "  - Accuracy tip: run against a production server (e.g., Next.js: next build && next start)",
       "  - Incremental: use --incremental --build-id <id> to skip unchanged audits between runs",
       "  - Presets: choose only one of --fast, --quick, --accurate, --devtools-accurate",
@@ -332,6 +362,14 @@ export async function runBin(argv: readonly string[]): Promise<void> {
   const runOnce = async (): Promise<void> => {
     if (parsed.command === "audit") {
       await runAuditCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "quick") {
+      await runQuickCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "report") {
+      await runReportCli(parsed.argv);
       return;
     }
     if (parsed.command === "measure") {

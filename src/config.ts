@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ApexBudgets, ApexConfig, ApexThrottlingMethod, CategoryBudgetThresholds, MetricBudgetThresholds } from "./types.js";
+import type { ApexBudgets, ApexConfig, ApexPageScope, ApexThrottlingMethod, CategoryBudgetThresholds, MetricBudgetThresholds } from "./types.js";
 
 /**
  * Load and minimally validate the ApexAuditor configuration file.
@@ -111,6 +111,7 @@ function normalisePage(page: unknown, index: number, absolutePath: string) {
     readonly path?: unknown;
     readonly label?: unknown;
     readonly devices?: unknown;
+    readonly scope?: unknown;
   };
   if (typeof maybePage.path !== "string" || !maybePage.path.startsWith("/")) {
     throw new Error(`Invalid page at index ${index} in ${absolutePath}: path must start with '/'`);
@@ -127,10 +128,13 @@ function normalisePage(page: unknown, index: number, absolutePath: string) {
         return d;
       })
     : ["mobile"];
+  const rawScope: unknown = maybePage.scope;
+  const scope: ApexPageScope | undefined = rawScope === "public" || rawScope === "requires-auth" ? rawScope : undefined;
   return {
     path: maybePage.path,
     label,
     devices,
+    scope,
   } as const;
 }
 
