@@ -8,8 +8,8 @@
 - Outputs: `pwa.json` PWA-focused checks (HTTPS, service worker, offline signals) with per-route evidence pointers into `diagnostics-lite`.
 
 ### Changed
-- Reporting: global scoring/aggregation excludes `requires-auth` pages while still reporting them per-combo.
-- Workflow guidance: documentation and navigation now emphasize fast iteration (rerun worst/failing) with `--stable` as a fallback when parallel mode flakes.
+- Reporting now treats `requires-auth` routes as scoped observations (they still appear per-combo but do not change global totals).
+- Workflow guidance (docs, reports, navigation) prioritizes fast iteration, rerunning worst/failing combos first, and only recommends `--stable` when parallel workers flake.
 
 ## 0.3.9 - 2026-01-03
 

@@ -1,30 +1,27 @@
 # ApexAuditor
 
-ApexAuditor is a **measure-first** performance + metrics assistant.
+ApexAuditor helps web teams move from noisy Lighthouse runs to structured, actionable insight. It combines:
 
-Use it to:
+- **Measure** runs for fast LCP/CLS/INP + screenshot + console captures so you can spot regressions without waiting for full Lighthouse suites.
+- **Audit** runs powered by Lighthouse with AI-ready artifacts (`issues.json`, `ai-ledger.json`, `pwa.json`, `diagnostics-lite/*`, `triage.md`) plus repeat-offender evidence to pinpoint what to fix next.
+- **Review** output that highlights worst combos, aggregations, and scoped routes so you can prioritize public pages while still tracking auth-only flows.
 
-- **Measure fast** (CDP-based): LCP/CLS/INP + screenshot + console errors.
-- **Audit deep** (Lighthouse): Performance + Accessibility + Best Practices + SEO.
-- **Review results** in a clean, structured console output and an HTML report.
+The docs wallet (this README + `docs/`) now focuses on fast iteration, high-signal evidence, and making artifacts consumable for engineers, CI, and AI helpers.
 
 ## Most common commands
 
-From your web project root:
+The fastest way to run ApexAuditor against any project (without installing it) is:
 
 ```bash
 pnpm dlx apex-auditor@latest
 ```
 
-This runs the latest published version without installing it.
-
 Notes:
 
-- `init` can auto-detect your stack from `package.json` (Next.js, Nuxt, Remix/React Router, SvelteKit, SPA).
-- In monorepos, `init` can prompt you to pick an app/package under `apps/` or `packages/`.
-- `init` can auto-discover routes from the filesystem and top-up from `robots.txt`/`sitemap.xml`. You can optionally filter detected routes with include/exclude patterns and still add manual routes. For larger route sets, the wizard may default filtering to **Yes** and prefill common excludes (framework-specific).
-- For static sites, `init` can discover routes from HTML files under `dist/`, `build/`, `out/`, `public/`, and `src/`.
-- When using a localhost base URL (e.g. `http://localhost:3000`), make sure the dev server port matches the project you’re configuring (important when multiple projects are running).
+- `init` auto-detects your stack from `package.json` (Next.js, Nuxt, Remix/React Router, SvelteKit, SPA) and can scan `apps/*` or `packages/*` inside monorepos.
+- The wizard can discover routes from the filesystem plus `robots.txt`/`sitemap.xml` and lets you filter includes/excludes (default filtering may be `Yes` for large route sets).
+- Static projects are discovered via HTML files in `dist/`, `build/`, `out/`, `public/`, and `src/`.
+- When using a localhost base URL (e.g. `http://localhost:3000`), keep the dev server port in sync to avoid auditing a different project.
 
 Inside the interactive shell:
 
