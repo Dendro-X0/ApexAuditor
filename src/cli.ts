@@ -9,6 +9,7 @@ import type { AxeResult, AxeSummary, AxeViolation } from "./accessibility-types.
 import { runAccessibilityAudit } from "./accessibility.js";
 import { writeRunnerReports } from "./runner-reporting.js";
 import { writeArtifactsNavigation } from "./artifacts-navigation.js";
+import { writeRedIssuesReport } from "./red-issues.js";
 import { startSpinner, stopSpinner, updateSpinnerMessage } from "./spinner.js";
 import { runAuditsForConfig } from "./lighthouse-runner.js";
 import { postJsonWebhook } from "./webhooks.js";
@@ -3085,6 +3086,7 @@ export async function runAuditCli(argv: readonly string[], options?: { readonly 
     targetScore: DEFAULT_TARGET_SCORE,
   });
   await writeJsonWithOptionalGzip(resolve(outputDir, "ai-ledger.json"), aiLedger, { pretty: false });
+  await writeRedIssuesReport({ outputDir, issues, ledger: aiLedger });
   if (!args.noAiFix) {
     const aiFix: AiFixPacket = buildAiFixPacket({ summary, issues, targetScore: DEFAULT_TARGET_SCORE, runtime });
     await writeJsonWithOptionalGzip(resolve(outputDir, "ai-fix.json"), aiFix, { pretty: false });

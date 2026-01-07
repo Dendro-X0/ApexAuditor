@@ -108,6 +108,10 @@ JSR installs the same published artifact and keeps you pinned to the release ver
 
 All outputs are written under `.apex-auditor/` in your project.
 
+Start here for a human-first prioritized list:
+
+- `red-issues.md`
+
 ### `audit` outputs
 
 - `summary.json`
