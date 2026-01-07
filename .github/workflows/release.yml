@@ -37,6 +37,7 @@ jobs:
           pnpm pack --pack-destination release
 
       - name: Portable zip
+        shell: bash
         run: |
           set -euo pipefail
           RAW_NAME="$(node -p \"require('./package.json').name\")"
@@ -56,6 +57,7 @@ jobs:
           (cd release && zip -r "${ZIP_BASENAME}.zip" "${ZIP_BASENAME}")
 
       - name: Checksums
+        shell: bash
         run: |
           set -euo pipefail
           cd release
