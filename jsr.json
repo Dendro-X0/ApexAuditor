@@ -6,11 +6,8 @@
     "include": [
       "dist/**",
       "README.md",
-      "package.json"
-    ],
-    "exclude": [
-      "node_modules/**",
-      ".github/**"
+      "package.json",
+      "LICENSE"
     ]
   }
 }
