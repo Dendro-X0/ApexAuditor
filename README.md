@@ -53,11 +53,11 @@ Cancel long-running commands:
 
 ### GitHub Release asset (recommended)
 
-1. Download `auditorix-<version>.tgz` from the latest GitHub Release.
-2. Install it directly:
+1. Download the `signaler-<version>.tgz` asset from the latest GitHub Release.
+2. Install it:
 
 ```bash
-pnpm add -D ./auditorix-<version>.tgz
+pnpm add -D ./signaler-<version>.tgz
 ```
 
 Run the CLI with the project-local binary:
@@ -71,13 +71,13 @@ Note: `pnpm apex-auditor` runs the version installed in your current project, wh
 ### JSR install (JSR-only release)
 
 ```bash
-npx jsr add auditorix
+npx jsr add @auditorix/signaler
 ```
 
 or (pnpm 10.9+/yarn 4.9+/deno):
 
 ```bash
-pnpm add jsr:auditorix
+pnpm add jsr:@auditorix/signaler
 ```
 
 JSR installs the same published artifact and keeps you pinned to the release version without relying on npm. The command `npx jsr add auditorix` also writes the necessary `.npmrc` entries for legacy package managers and pins the scope to `auditorix`.
