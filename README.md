@@ -14,18 +14,36 @@ The docs wallet (this README + `docs/`) now focuses on fast iteration, high-sign
 
 Use the GitHub Release portable zip and installer scripts. This avoids npm/JSR entirely.
 
-You can run the installer scripts from the unpacked portable zip.
+You must run the installer from inside the unpacked portable zip folder (the folder that contains `dist/` and `release-assets/`).
 
 Windows (PowerShell):
 
 ```powershell
-./release-assets/install.ps1 -AddToPath
+cd path\to\signaler-<version>-portable
+powershell -NoProfile -ExecutionPolicy Bypass -File .\release-assets\install.ps1 -AddToPath
 ```
 
 macOS/Linux:
 
 ```bash
+cd /path/to/signaler-<version>-portable
 ./release-assets/install.sh --add-to-path
+```
+
+Run without installing (from the unpacked folder):
+
+Windows:
+
+```powershell
+cd path\to\signaler-<version>-portable
+.\release-assets\run.cmd --help
+```
+
+macOS/Linux:
+
+```bash
+cd /path/to/signaler-<version>-portable
+./release-assets/run.sh --help
 ```
 
 After installation (restart your terminal), run from any directory:
