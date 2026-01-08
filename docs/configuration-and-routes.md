@@ -31,12 +31,12 @@ Common fields:
 - `warmUp` (optional)
 - `auditTimeoutMs` (optional per-audit timeout)
 - `incremental` + `buildId` (optional cache reuse)
-- `gitIgnoreApexAuditorDir` (optional; when true, ApexAuditor appends `.apex-auditor/` to `.gitignore` if a `.gitignore` exists)
+- `gitIgnoreApexAuditorDir` (optional; when true, Signaler appends `.apex-auditor/` to `.gitignore` if a `.gitignore` exists)
 - `budgets` (optional)
 
 ## Route auto-detection notes
 
-When the init wizard auto-detects routes, ApexAuditor filters out unresolved dynamic route patterns to avoid inaccurate audits.
+When the init wizard auto-detects routes, Signaler filters out unresolved dynamic route patterns to avoid inaccurate audits.
 
 Examples that are excluded:
 

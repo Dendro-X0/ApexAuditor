@@ -1,6 +1,6 @@
 {
   "name": "@auditorix/signaler",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": false,
   "description": "CLI to run structured Lighthouse audits (Performance, Accessibility, Best Practices, SEO) across routes.",
   "type": "module",
@@ -10,6 +10,7 @@
     "README.md"
   ],
   "bin": {
+    "signaler": "./dist/bin.js",
     "apex-auditor": "./dist/bin.js"
   },
   "scripts": {

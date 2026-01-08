@@ -8,13 +8,50 @@ Auditorix (formerly ApexAuditor) helps web teams move from noisy Lighthouse runs
 
 The docs wallet (this README + `docs/`) now focuses on fast iteration, high-signal evidence, and making artifacts consumable for engineers, CI, and AI helpers. Auditorix is released via GitHub Releases and JSR (no npm).
 
-## Most common commands
+## Installation
 
-The fastest way to run Auditorix against any project (without installing it) is:
+### Registry-free (recommended)
+
+Use the GitHub Release portable zip and installer scripts. This avoids npm/JSR entirely.
+
+You can run the installer scripts from the unpacked portable zip.
+
+Windows (PowerShell):
+
+```powershell
+./release-assets/install.ps1 -AddToPath
+```
+
+macOS/Linux:
 
 ```bash
-pnpm dlx apex-auditor@latest
+./release-assets/install.sh --add-to-path
 ```
+
+After installation (restart your terminal), run from any directory:
+
+```bash
+signaler --help
+signaler audit --help
+```
+
+Upgrade later (no registry):
+
+```bash
+signaler upgrade
+```
+
+Tip: the installers set `SIGNALER_REPO=Dendro-X0/signaler` for you.
+
+```bash
+signaler upgrade
+```
+
+### Portable zip
+
+You can download the portable ZIP from GitHub Releases and run it without installing.
+
+## Most common commands
 
 Notes:
 
@@ -85,12 +122,12 @@ pnpm add -D ./signaler-<version>.tgz
 Run the CLI with the project-local binary:
 
 ```bash
-pnpm apex-auditor
+pnpm exec signaler --help
 ```
 
-Note: `pnpm apex-auditor` runs the version installed in your current project, which may be older than the latest release; repeat the download/`pnpm add` step whenever you need a newer build.
+Note: `pnpm exec signaler` runs the version installed in your current project, which may be older than the latest release; repeat the download/`pnpm add` step whenever you need a newer build.
 
-### JSR install (JSR-only release)
+### JSR install (optional)
 
 ```bash
 npx jsr add @auditorix/signaler
@@ -102,7 +139,9 @@ or (pnpm 10.9+/yarn 4.9+/deno):
 pnpm add jsr:@auditorix/signaler
 ```
 
-JSR installs the same published artifact and keeps you pinned to the release version without relying on npm. The command `npx jsr add auditorix` also writes the necessary `.npmrc` entries for legacy package managers and pins the scope to `auditorix`.
+JSR installs the published artifact and keeps you pinned to the release version.
+
+If you want a fully registry-free workflow, prefer GitHub Releases + `install.ps1`/`install.sh` + `signaler upgrade`.
 
 ## Outputs
 
@@ -215,7 +254,6 @@ Example:
 
 ## CLI tips
 
-- Use `pnpm dlx apex-auditor@latest` to avoid running an older installed version.
 - Use `audit --flags` to print all audit flags/options.
 - Use `audit --diagnostics` or `audit --lhr` when you want per-combo JSON artifacts and screenshots.
 - Start with `triage.md` and `issues.json` when the suite is large.

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { runAuditCli } from "./cli.js";
+import { runUpgradeCli } from "./upgrade-cli.js";
 import { runWizardCli } from "./wizard-cli.js";
 import { runQuickstartCli } from "./quickstart-cli.js";
 import { runShellCli } from "./shell-cli.js";
@@ -20,6 +21,7 @@ type ApexCommandId =
   | "audit"
   | "quick"
   | "report"
+  | "upgrade"
   | "measure"
   | "bundle"
   | "health"
@@ -50,13 +52,14 @@ function parseBinArgs(argv: readonly string[]): ParsedBinArgs {
     return { command: "help", argv };
   }
   if (rawCommand === "shell") {
-    const commandArgv: readonly string[] = ["node", "apex-auditor", ...argv.slice(3)];
+    const commandArgv: readonly string[] = ["node", "signaler", ...argv.slice(3)];
     return { command: "shell", argv: commandArgv };
   }
   if (
     rawCommand === "audit" ||
     rawCommand === "quick" ||
     rawCommand === "report" ||
+    rawCommand === "upgrade" ||
     rawCommand === "measure" ||
     rawCommand === "bundle" ||
     rawCommand === "health" ||
@@ -71,7 +74,7 @@ function parseBinArgs(argv: readonly string[]): ParsedBinArgs {
     rawCommand === "guide" ||
     rawCommand === "init"
   ) {
-    const commandArgv: readonly string[] = ["node", "apex-auditor", ...argv.slice(3)];
+    const commandArgv: readonly string[] = ["node", "signaler", ...argv.slice(3)];
     return { command: rawCommand as ApexCommandId, argv: commandArgv };
   }
   return { command: "help", argv };
@@ -87,9 +90,9 @@ function printHelp(topic?: string): void {
         "  ci        CI mode, exit codes, budgets",
         "  topics    This list",
         "Examples:",
-        "  apex-auditor help budgets",
-        "  apex-auditor help configs",
-        "  apex-auditor help ci",
+        "  signaler help budgets",
+        "  signaler help configs",
+        "  signaler help ci",
       ].join("\n"),
     );
     return;
@@ -152,22 +155,17 @@ function printHelp(topic?: string): void {
     [
       "ApexAuditor CLI",
       "",
-      "Recommended run (always latest):",
-      "  pnpm dlx apex-auditor@latest",
-      "",
-      "Note:",
-      "  pnpm apex-auditor runs the version installed in the current project, which may be older.",
-      "",
       "Usage:",
-      "  apex-auditor                 # interactive shell (default)",
-      "  apex-auditor quickstart --base-url <url> [--project-root <path>]",
-      "  apex-auditor wizard [--config <path>]",
-      "  apex-auditor quick [--config <path>] [--project-root <path>]",
-      "  apex-auditor report [--dir <path>]",
-      "  apex-auditor audit [--config <path>] [--ci] [--no-color|--color] [--log-level <level>]",
-      "  apex-auditor audit --flags    # print audit flags/options and exit",
-      "  apex-auditor guide  (alias of wizard) interactive flow with tips for non-technical users",
-      "  apex-auditor shell           # same as default entrypoint",
+      "  signaler                 # interactive shell (default)",
+      "  signaler quickstart --base-url <url> [--project-root <path>]",
+      "  signaler wizard [--config <path>]",
+      "  signaler quick [--config <path>] [--project-root <path>]",
+      "  signaler report [--dir <path>]",
+      "  signaler audit [--config <path>] [--ci] [--no-color|--color] [--log-level <level>]",
+      "  signaler audit --flags    # print audit flags/options and exit",
+      "  signaler guide  (alias of wizard) interactive flow with tips for non-technical users",
+      "  signaler upgrade --repo <owner/name>  # self-update from GitHub Releases",
+      "  signaler shell           # same as default entrypoint",
       "",
       "Commands:",
       "  Interactive:",
@@ -181,6 +179,7 @@ function printHelp(topic?: string): void {
       "    quick      Fast runner pack (measure + headers + links + bundle + accessibility pass)",
       "    report     Generate global reports from existing .apex-auditor/ artifacts (no Lighthouse run)",
       "    audit      Run Lighthouse audits using apex.config.json",
+      "    upgrade    Self-update the CLI from GitHub Releases",
       "    bundle     Bundle size audit (Next.js .next/ or dist/ build output)",
       "    health     HTTP status + latency checks for configured routes",
       "    links      Broken links audit (sitemap + HTML link extraction)",
@@ -328,8 +327,8 @@ function printHelp(topic?: string): void {
       "  - Presets: choose only one of --fast, --quick, --accurate, --devtools-accurate",
       "",
       "More help:",
-      "  apex-auditor help topics",
-      "  apex-auditor help budgets",
+      "  signaler help topics",
+      "  signaler help budgets",
     ].join("\n"),
   );
 }
@@ -354,7 +353,7 @@ export async function runBin(argv: readonly string[]): Promise<void> {
   if (parsed.command === "quickstart") {
     await runQuickstartCli(parsed.argv);
     if (isInteractiveTty()) {
-      await runShellCli(["node", "apex-auditor"]);
+      await runShellCli(["node", "signaler"]);
     }
     return;
   }
@@ -370,6 +369,10 @@ export async function runBin(argv: readonly string[]): Promise<void> {
     }
     if (parsed.command === "report") {
       await runReportCli(parsed.argv);
+      return;
+    }
+    if (parsed.command === "upgrade") {
+      await runUpgradeCli(parsed.argv);
       return;
     }
     if (parsed.command === "measure") {
@@ -420,14 +423,14 @@ export async function runBin(argv: readonly string[]): Promise<void> {
     const message: string = error instanceof Error ? error.message : String(error);
     if (message.includes("ENOENT")) {
       // eslint-disable-next-line no-console
-      console.error("Config file not found. Run `apex-auditor init` to create a config or set one with `config <path>`.");
+      console.error("Config file not found. Run `signaler init` to create a config or set one with `config <path>`.");
       return;
     }
     throw error;
   }
 
   if (isInteractiveTty()) {
-    await runShellCli(["node", "apex-auditor"]);
+    await runShellCli(["node", "signaler"]);
   }
 }
 

@@ -1,6 +1,6 @@
 # Getting Started
 
-ApexAuditor is a **measure-first** performance + metrics assistant.
+Signaler (formerly ApexAuditor) is a **measure-first** performance + metrics assistant.
 
 Typical workflow:
 
@@ -26,25 +26,29 @@ Optional audits:
 
 ## 1. Install / run
 
-From your web project root:
+Registry-free installation (recommended):
 
-```bash
-pnpm dlx apex-auditor@latest
+1. Download `signaler-<version>-portable.zip` from GitHub Releases.
+2. Unzip it.
+3. Run the installer script from the unpacked folder:
+
+Windows (PowerShell):
+
+```powershell
+./release-assets/install.ps1 -AddToPath
 ```
 
-This is the recommended way to run ApexAuditor because it always uses the latest published version.
-
-Or install as a dev dependency (pinned to whatever version your project depends on):
+macOS/Linux:
 
 ```bash
-pnpm add -D apex-auditor
-pnpm apex-auditor
+./release-assets/install.sh --add-to-path
 ```
 
-Note:
+Upgrade later (no registry):
 
-- `pnpm apex-auditor` runs the version installed in your current project, which may be older than the latest release.
-- ApexAuditor cannot safely self-update; use `pnpm dlx apex-auditor@latest` when you want the latest version.
+```bash
+signaler upgrade
+```
 
 Prerequisites:
 
@@ -103,6 +107,7 @@ Outputs:
 - `.apex-auditor/summary.md`
 - `.apex-auditor/triage.md`
 - `.apex-auditor/issues.json`
+- `.apex-auditor/red-issues.md`
 - `.apex-auditor/pwa.json`
 - `.apex-auditor/ai-fix.json` (unless `audit --no-ai-fix`)
 - `.apex-auditor/ai-fix.min.json` (unless `audit --no-ai-fix`)

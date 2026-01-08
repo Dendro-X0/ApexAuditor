@@ -4,15 +4,26 @@ This document describes non-interactive CLI usage (for scripts/CI) and budget en
 
 ## 1. Commands
 
-The CLI binary is `apex-auditor`.
+The CLI binary is `signaler`.
 
 Install from GitHub Releases:
 
-1. Download the `apex-auditor-<version>.tgz` asset from the GitHub Release.
+1. Download the `signaler-<version>.tgz` asset from the GitHub Release.
 2. Install it in your project:
 
 ```bash
-pnpm add -D ./apex-auditor-<version>.tgz
+pnpm add -D ./signaler-<version>.tgz
+```
+
+Or install system-wide (no registries) using the portable zip installer:
+
+- Windows: `release-assets/install.ps1 -AddToPath`
+- macOS/Linux: `release-assets/install.sh --add-to-path`
+
+Upgrade later:
+
+```bash
+signaler upgrade
 ```
 
 ### `shell`
@@ -20,7 +31,7 @@ pnpm add -D ./apex-auditor-<version>.tgz
 Interactive mode (recommended for local use):
 
 ```bash
-apex-auditor shell
+signaler shell
 ```
 
 Inside the shell:
@@ -60,7 +71,7 @@ Notes:
 Run Lighthouse audits from a config file:
 
 ```bash
-apex-auditor audit --config apex.config.json
+signaler audit --config apex.config.json
 ```
 
 Notes:
@@ -97,6 +108,7 @@ Outputs:
 - `.apex-auditor/issues.json`
 - `.apex-auditor/pwa.json`
 - `.apex-auditor/triage.md`
+- `.apex-auditor/red-issues.md`
 - `.apex-auditor/ai-ledger.json`
 - `.apex-auditor/ai-fix.json` (unless `--no-ai-fix`)
 - `.apex-auditor/ai-fix.min.json` (unless `--no-ai-fix`)
@@ -138,7 +150,7 @@ When you care about token efficiency and disk output size:
 Run fast CDP-based metrics:
 
 ```bash
-apex-auditor measure --config apex.config.json
+signaler measure --config apex.config.json
 ```
 
 Key flags:
@@ -154,7 +166,7 @@ Key flags:
 Scan build outputs to report total JS/CSS size and the largest files.
 
 ```bash
-apex-auditor bundle --project-root .
+signaler bundle --project-root .
 ```
 
 Key flags:
@@ -172,7 +184,7 @@ Output:
 Fast HTTP checks for routes from `apex.config.json`.
 
 ```bash
-apex-auditor health --config apex.config.json
+signaler health --config apex.config.json
 ```
 
 Key flags:
@@ -191,7 +203,7 @@ Output:
 Sitemap + HTML link extraction to find broken internal links.
 
 ```bash
-apex-auditor links --config apex.config.json
+signaler links --config apex.config.json
 ```
 
 Key flags:
@@ -212,7 +224,7 @@ Output:
 Security headers presence check per configured route.
 
 ```bash
-apex-auditor headers --config apex.config.json
+signaler headers --config apex.config.json
 ```
 
 Key flags:
@@ -231,7 +243,7 @@ Output:
 Headless Chrome pass that captures console errors and uncaught exceptions.
 
 ```bash
-apex-auditor console --config apex.config.json
+signaler console --config apex.config.json
 ```
 
 Key flags:
@@ -253,12 +265,12 @@ Budgets are configured in `apex.config.json` under `budgets`.
 Run in CI:
 
 ```bash
-apex-auditor audit --ci --no-color
+signaler audit --ci --no-color
 ```
 
 Behavior:
 
-- If budgets are configured, ApexAuditor evaluates thresholds and exits non-zero on violations.
+- If budgets are configured, Signaler evaluates thresholds and exits non-zero on violations.
 - In CI mode, ANSI color is disabled by default unless you pass `--color`.
 
 ## 3. GitHub Actions example
@@ -266,7 +278,7 @@ Behavior:
 Minimal example (start app, wait, run audit):
 
 ```yaml
-name: ApexAuditor
+name: Signaler
 
 on:
   pull_request:
@@ -284,5 +296,5 @@ jobs:
       - run: pnpm build
       - run: pnpm start &
       - run: npx wait-on http://localhost:3000
-      - run: pnpm dlx apex-auditor@latest audit --ci --no-color
+      - run: pnpm exec signaler audit --ci --no-color
 ```

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2 - 2026-01-07
+
+### Added
+- Outputs: `red-issues.md` and `red-issues.json` (human-first ranked list of red issues across the suite).
+- Distribution: portable ZIP now includes registry-free installer scripts (`release-assets/install.ps1`, `release-assets/install.sh`).
+- CLI: `signaler upgrade` to self-update from GitHub Releases portable zip.
+
+### Changed
+- CLI: `signaler` is the primary command name; `apex-auditor` remains as a compatibility alias.
+
 ## 0.4.0 - 2026-01-05
 
 ### Added
