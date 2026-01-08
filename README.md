@@ -12,38 +12,32 @@ The docs wallet (this README + `docs/`) now focuses on fast iteration, high-sign
 
 ### Registry-free (recommended)
 
-Use the GitHub Release portable zip and installer scripts. This avoids npm/JSR entirely.
+This is the only supported install/update flow. It does not use npm.
 
-You must run the installer from inside the unpacked portable zip folder (the folder that contains `dist/` and `release-assets/`).
-
-Windows (PowerShell):
+Windows (PowerShell) one-liner (install or upgrade):
 
 ```powershell
-cd path\to\signaler-<version>-portable
-powershell -NoProfile -ExecutionPolicy Bypass -File .\release-assets\install.ps1 -AddToPath
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/Dendro-X0/signaler/main/release-assets/install.ps1').Content)) -AddToPath"
 ```
 
-macOS/Linux:
+macOS/Linux one-liner (install or upgrade):
 
 ```bash
-cd /path/to/signaler-<version>-portable
-./release-assets/install.sh --add-to-path
+curl -fsSL https://raw.githubusercontent.com/Dendro-X0/signaler/main/release-assets/install.sh | bash -s -- --add-to-path
 ```
 
-Run without installing (from the unpacked folder):
+To pin a specific version (example `v0.4.2`), replace `main` with the tag:
 
 Windows:
 
 ```powershell
-cd path\to\signaler-<version>-portable
-.\release-assets\run.cmd --help
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/Dendro-X0/signaler/v0.4.2/release-assets/install.ps1').Content)) -AddToPath"
 ```
 
 macOS/Linux:
 
 ```bash
-cd /path/to/signaler-<version>-portable
-./release-assets/run.sh --help
+curl -fsSL https://raw.githubusercontent.com/Dendro-X0/signaler/v0.4.2/release-assets/install.sh | bash -s -- --add-to-path
 ```
 
 After installation (restart your terminal), run from any directory:
@@ -55,15 +49,14 @@ signaler audit --help
 
 Upgrade later (no registry):
 
+- Re-run the one-liner installer (recommended).
+- Or run:
+
 ```bash
 signaler upgrade
 ```
 
 Tip: the installers set `SIGNALER_REPO=Dendro-X0/signaler` for you.
-
-```bash
-signaler upgrade
-```
 
 ### Portable zip
 
