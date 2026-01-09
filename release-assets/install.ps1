@@ -80,7 +80,12 @@ if (!$portableRoot) { throw "Portable zip did not contain a root directory." }
 if (Test-Path $installRoot) { Remove-Item -Recurse -Force $installRoot }
 Move-Item -Force $portableRoot.FullName $installRoot
 $launcherPath = Join-Path $binDir "signaler.cmd"
-$launcher = "@echo off`r`nsetlocal`r`nset `\"ROOT=$installRoot`\"`r`nnode `\"%ROOT%\\dist\\bin.js`\" %*`r`n"
+$launcher = @"
+@echo off
+setlocal
+set "ROOT=$installRoot"
+node "%ROOT%\dist\bin.js" %*
+"@
 Set-Content -Path $launcherPath -Value $launcher -Encoding ASCII
 Write-Host "Installed to: $installRoot"
 Write-Host "Launcher: $launcherPath"
